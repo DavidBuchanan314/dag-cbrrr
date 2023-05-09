@@ -1,6 +1,8 @@
 # dag-cbrrr
 A reasonably fast DAG-CBOR parser for Python
 
+Other than speed, a distinguishing feature is that it parses *non-recursively*. This means you can parse arbitrarily deeply nested objects without running out of call stack (although of course you might still run out of heap)
+
 ## Status: UNSAFE/UNSTABLE/EXPERIMENTAL/WIP
 
 ### Testing
