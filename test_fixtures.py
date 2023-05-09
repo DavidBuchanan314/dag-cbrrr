@@ -4,6 +4,7 @@ import os
 import cbrrr
 import json
 import base64
+import base58
 
 class CID:
 	def __init__(self, cid_bytes):
@@ -13,7 +14,12 @@ class CID:
 		return f"CID({self.cid_bytes.hex()})"
 
 	def __str__(self) -> str:
-		return "b" + base64.b32encode(self.cid_bytes[1:]).decode().lower().rstrip("=")
+		#print(self.cid_bytes[:5])
+		# XXX: this is a hack! do proper multiformat logic
+		if self.cid_bytes.startswith(b'\x00\x01'):
+			return "b" + base64.b32encode(self.cid_bytes[1:]).decode().lower().rstrip("=")
+		else:
+			return base58.b58encode(self.cid_bytes[1:]).decode()
 
 class DagJsonEncoder(json.JSONEncoder):
 	def default(self, o):
@@ -21,9 +27,6 @@ class DagJsonEncoder(json.JSONEncoder):
 			return {"/": {"bytes": base64.b64encode(o).decode().rstrip("=")}}
 		if isinstance(o, CID):
 			return {"/": str(o)}
-		if isinstance(o, dict):
-			print("HELLO")
-			return o
 		return json.JSONEncoder.default(self, o)
 
 def serialise_dag_json(object):
@@ -59,7 +62,7 @@ for subdir in os.listdir(FIXTURE_PATH):
 		#print(dag_json)
 		#print(reserialised)
 		assert(reserialised == dag_json)
-		print("PASS") # TODO: compare to dag_json!!!!
+		print("PASS")
 		num_passed += 1
 	except Exception as e:
 		print("FAILED", e)
