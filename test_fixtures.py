@@ -18,13 +18,17 @@ class CID:
 class DagJsonEncoder(json.JSONEncoder):
 	def default(self, o):
 		if isinstance(o, bytes):
-			return {"/": {"bytes": base64.b64encode(o).decode()}}
+			return {"/": {"bytes": base64.b64encode(o).decode().rstrip("=")}}
 		if isinstance(o, CID):
 			return {"/": str(o)}
+		if isinstance(o, dict):
+			print("HELLO")
+			return o
 		return json.JSONEncoder.default(self, o)
 
 def serialise_dag_json(object):
-	return json.dumps(object, cls=DagJsonEncoder, separators=(",", ":")).encode()
+	# XXX: sort_keys probably uses the wrong sorting logic
+	return json.dumps(object, cls=DagJsonEncoder, separators=(",", ":"), ensure_ascii=False, sort_keys=True).encode()
 
 num_passed = 0
 num_tested = 0
@@ -52,10 +56,13 @@ for subdir in os.listdir(FIXTURE_PATH):
 	try:
 		result, parsed_len = cbrrr.parse_dag_cbor(dag_cbor, CID)
 		reserialised = serialise_dag_json(result)
+		#print(dag_json)
+		#print(reserialised)
 		assert(reserialised == dag_json)
 		print("PASS") # TODO: compare to dag_json!!!!
 		num_passed += 1
 	except Exception as e:
 		print("FAILED", e)
+		#exit()
 
 print(f"{num_passed}/{num_tested} tests passed")
