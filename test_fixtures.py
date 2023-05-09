@@ -45,11 +45,11 @@ for subdir in os.listdir(FIXTURE_PATH):
 	right now a lot of the "garbage" tests are failing
 	TODO: figure out if that's supposed to happen
 	"""
-	if subdir.startswith("garbage"):
-		continue
+	#if subdir.startswith("garbage"):
+	#	continue
 
 	dirpath = FIXTURE_PATH + subdir + "/"
-	print("testing", dirpath)
+	#print("testing", dirpath)
 	paths = os.listdir(dirpath)
 	dag_cbor = open(next(dirpath + p for p in paths if p.endswith(".dag-cbor")), "rb").read()
 	dag_json = open(next(dirpath + p for p in paths if p.endswith(".dag-json")), "rb").read()
@@ -62,10 +62,10 @@ for subdir in os.listdir(FIXTURE_PATH):
 		#print(dag_json)
 		#print(reserialised)
 		assert(reserialised == dag_json)
-		print("PASS")
+		print("PASS", dirpath)
 		num_passed += 1
 	except Exception as e:
-		print("FAILED", e)
+		print("FAIL", dirpath, e)
 		#exit()
 
 print(f"{num_passed}/{num_tested} tests passed")

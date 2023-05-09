@@ -152,7 +152,7 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 				PyErr_SetString(PyExc_EOFError, "not enough bytes left in buffer");
 				return -1;
 			}
-			double doubleval = ((union {uint64_t num; double dub;}){.num=be64toh(*(uint64_t*)&buf[idx])}).dub;
+			double doubleval = ((union {uint64_t num; double dub;}){.num=be64toh(*(uint64_t*)&buf[idx])}).dub; // TODO: rewrite lol
 			if (isnan(doubleval)) {
 				PyErr_SetString(PyExc_EOFError, "NaNs are not allowed");
 				return -1;
@@ -161,7 +161,7 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 				PyErr_SetString(PyExc_EOFError, "+/-Infinities are not allowed");
 				return -1;
 			}
-			token->value = PyFloat_FromDouble(doubleval); // TODO: rewrite lol
+			token->value = PyFloat_FromDouble(doubleval);
 			return idx;
 		default:
 			PyErr_Format(PyExc_ValueError, "invalid extra info for float mtype (%lu)", info);
@@ -226,7 +226,7 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 			return -1;
 		}
 		token->count = info;
-		token->prev_key = (const uint8_t *)"";
+		token->prev_key = NULL;
 		token->prev_key_len = 0;
 		return idx;
 	case DCMT_TAG:
@@ -311,21 +311,6 @@ cbrrr_parse_object(const uint8_t *buf, size_t len, PyObject **value, PyObject *c
 				break;
 			}
 			idx += res;
-			if (str_len < parse_stack[sp].prev_key_len) { // key order violation
-				// panik
-				PyErr_Format(PyExc_ValueError, "non-canonical map key ordering (len('%s') < len('%s'))", str, parse_stack[sp].prev_key);
-				idx = -1;
-				break;
-			} else if (str_len == parse_stack[sp].prev_key_len) { // ditto
-				if (memcmp(str, parse_stack[sp].prev_key, str_len) <= 0) {
-					PyErr_Format(PyExc_ValueError, "non-canonical map key ordering ('%s' <= '%s')", str, parse_stack[sp].prev_key);
-					idx = -1;
-					break;
-				}
-			}
-			parse_stack[sp].prev_key = str;
-			parse_stack[sp].prev_key_len = str_len;
-
 			// check unicode validity before parsing next token to avoid leaking a reference when we bail out
 			// TODO: fast-path(s) for common/short keys
 			PyObject *key = PyUnicode_FromStringAndSize((const char*)str, str_len);
@@ -333,6 +318,26 @@ cbrrr_parse_object(const uint8_t *buf, size_t len, PyObject **value, PyObject *c
 				idx = -1;
 				break;
 			}
+			if (parse_stack[sp].prev_key != NULL) { // don't check the first key
+				if (str_len < parse_stack[sp].prev_key_len) { // key order violation
+					// panik
+					PyObject *tmp = PyUnicode_FromStringAndSize((const char*)parse_stack[sp].prev_key, parse_stack[sp].prev_key_len);
+					PyErr_Format(PyExc_ValueError, "non-canonical map key ordering (len(%R) < len(%R))", key, tmp);
+					Py_DECREF(tmp);
+					idx = -1;
+					break;
+				} else if (str_len == parse_stack[sp].prev_key_len) { // ditto
+					if (memcmp(str, parse_stack[sp].prev_key, str_len) <= 0) {
+						PyObject *tmp = PyUnicode_FromStringAndSize((const char*)parse_stack[sp].prev_key, parse_stack[sp].prev_key_len);
+						PyErr_Format(PyExc_ValueError, "non-canonical map key ordering (%R <= %R)", key, tmp);
+						Py_DECREF(tmp);
+						idx = -1;
+						break;
+					}
+				}
+			}
+			parse_stack[sp].prev_key = str;
+			parse_stack[sp].prev_key_len = str_len;
 
 			res = cbrrr_parse_token(&buf[idx], len-idx, &parse_stack[sp+1], cid_ctor);
 			if (res == (size_t)-1) {
