@@ -152,7 +152,16 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 				PyErr_SetString(PyExc_EOFError, "not enough bytes left in buffer");
 				return -1;
 			}
-			token->value = PyFloat_FromDouble(((union {uint64_t num; double dub;}){.num=be64toh(*(uint64_t*)&buf[idx])}).dub); // TODO: rewrite lol
+			double doubleval = ((union {uint64_t num; double dub;}){.num=be64toh(*(uint64_t*)&buf[idx])}).dub;
+			if (isnan(doubleval)) {
+				PyErr_SetString(PyExc_EOFError, "NaNs are not allowed");
+				return -1;
+			}
+			if (isinf(doubleval)) {
+				PyErr_SetString(PyExc_EOFError, "+/-Infinities are not allowed");
+				return -1;
+			}
+			token->value = PyFloat_FromDouble(doubleval); // TODO: rewrite lol
 			return idx;
 		default:
 			PyErr_Format(PyExc_ValueError, "invalid extra info for float mtype (%lu)", info);
