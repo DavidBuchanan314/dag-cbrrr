@@ -21,6 +21,8 @@ class CID:
 		else:
 			return base58.b58encode(self.cid_bytes[1:]).decode()
 
+# XXX: this is not a good DAG-JSON encoder, it's just here because I need it
+# to verify the test results
 class DagJsonEncoder(json.JSONEncoder):
 	def default(self, o):
 		if isinstance(o, bytes):
@@ -30,8 +32,9 @@ class DagJsonEncoder(json.JSONEncoder):
 		return json.JSONEncoder.default(self, o)
 
 def serialise_dag_json(object):
-	# XXX: sort_keys probably uses the wrong sorting logic
-	return json.dumps(object, cls=DagJsonEncoder, separators=(",", ":"), ensure_ascii=False, sort_keys=True).encode()
+	# XXX: sort_keys probably uses the wrong sorting logic for >ascii codepoints
+	res = json.dumps(object, cls=DagJsonEncoder, separators=(",", ":"), ensure_ascii=False, sort_keys=True).encode()
+	return res.replace(b"e-08", b"e-8") # dirty hack to match json standard form exponents (this is a problem with my ad-hoc dag-json encoder, not in the dag-cbor parser)
 
 num_passed = 0
 num_tested = 0
@@ -40,13 +43,6 @@ FIXTURE_PATH = "codec-fixtures/fixtures/"
 for subdir in os.listdir(FIXTURE_PATH):
 	if subdir.startswith("."):
 		continue
-
-	"""
-	right now a lot of the "garbage" tests are failing
-	TODO: figure out if that's supposed to happen
-	"""
-	#if subdir.startswith("garbage"):
-	#	continue
 
 	dirpath = FIXTURE_PATH + subdir + "/"
 	#print("testing", dirpath)

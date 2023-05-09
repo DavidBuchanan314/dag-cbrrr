@@ -162,7 +162,7 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 				return -1;
 			}
 			token->value = PyFloat_FromDouble(doubleval);
-			return idx;
+			return idx + sizeof(double);
 		default:
 			PyErr_Format(PyExc_ValueError, "invalid extra info for float mtype (%lu)", info);
 			return -1;
@@ -293,6 +293,7 @@ cbrrr_parse_object(const uint8_t *buf, size_t len, PyObject **value, PyObject *c
 				idx = -1;
 				break;
 			}
+			//printf("DEBUG: token type %u, start=%lu len=%lu\n", parse_stack[sp+1].type, idx, res);
 			idx += res;
 			// move ownership of sp+1 into sp
 			PyList_SET_ITEM(
@@ -344,6 +345,7 @@ cbrrr_parse_object(const uint8_t *buf, size_t len, PyObject **value, PyObject *c
 				idx = -1;
 				break;
 			}
+			//printf("DEBUG: (map value) token type %u, start=%lu len=%lu\n", parse_stack[sp+1].type, idx, res);
 			idx += res;
 
 			// move ownership of sp+1 into sp
