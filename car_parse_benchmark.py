@@ -1,5 +1,8 @@
 import io
-from cbrrr import parse_dag_cbor
+import sys
+from cbrrr import parse_dag_cbor, encode_dag_cbor
+
+sys.setrecursionlimit(99999999)
 
 # LEB128 (has not been strictly tested!)
 def parse_varint(stream):
@@ -33,6 +36,8 @@ def parse_car(stream, length):
 		#content_hash = hashlib.sha256(block_data).digest()
 		#assert(cid_raw.endswith(content_hash))
 		block = parse_dag_cbor(block_data)
+		#roundtrip = encode_dag_cbor(block)
+		#assert(block_data == roundtrip)
 		#print(block)
 		nodes[cid_raw] = block
 	
