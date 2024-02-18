@@ -1,21 +1,5 @@
 import io
-import hashlib
-
-import cbrrr
-
-# this is too slow to use rn
-class CID:
-	def __init__(self, cid_bytes):
-		self.cid_bytes = cid_bytes
-	
-	def __repr__(self):
-		return f"CID({self.cid_bytes.hex()})"
-
-# faster placeholder
-CID = lambda x: x
-
-def parse_dag_cbor_object(data):
-	return cbrrr.parse_dag_cbor(data, CID)
+from cbrrr import parse_dag_cbor
 
 # LEB128 (has not been strictly tested!)
 def parse_varint(stream):
@@ -30,8 +14,9 @@ def parse_varint(stream):
 
 def parse_car(stream, length):
 	header_len = parse_varint(stream)
-	car_header, parsed_len = parse_dag_cbor_object(stream.read(header_len))
-	assert(parsed_len == header_len)
+	header_bytes = stream.read(header_len)
+	assert(len(header_bytes) == header_len)
+	car_header = parse_dag_cbor(header_bytes)
 	assert(car_header.get("version") == 1)
 	assert(len(car_header.get("roots", [])) == 1)
 
@@ -44,11 +29,11 @@ def parse_car(stream, length):
 		assert(cid_raw.startswith(b"\x01q\x12 ")) # CIDv1, dag-cbor, sha256
 
 		block_data = stream.read(block_len-36)
+		assert(len(block_data) == block_len-36)
 		#content_hash = hashlib.sha256(block_data).digest()
 		#assert(cid_raw.endswith(content_hash))
-		block, parsed_len = parse_dag_cbor_object(block_data)
+		block = parse_dag_cbor(block_data)
 		#print(block)
-		assert(parsed_len == block_len-36)
 		nodes[cid_raw] = block
 	
 	return root, nodes

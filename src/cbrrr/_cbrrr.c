@@ -182,11 +182,20 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 	{
 	case DCMT_UNSIGNED_INT:
 		token->value = PyLong_FromUnsignedLongLong(info);
+		if (token->value == NULL) {
+			return -1;
+		}
 		return idx;
 	case DCMT_NEGATIVE_INT:
 		tmp = PyLong_FromUnsignedLongLong(info);
+		if (tmp == NULL) {
+			return -1;
+		}
 		token->value = PyNumber_Invert(tmp);
 		Py_DECREF(tmp); // XXX
+		if (token->value == NULL) {
+			return -1;
+		}
 		return idx;
 	case DCMT_BYTE_STRING:
 		if (info > len - idx) {
@@ -194,6 +203,9 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 			return -1;
 		}
 		token->value = PyBytes_FromStringAndSize((const char *)&buf[idx], info);
+		if (token->value == NULL) {
+			return -1;
+		}
 		return idx + info;
 	case DCMT_TEXT_STRING:
 		if (info > len - idx) {
@@ -243,6 +255,9 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 			return -1;
 		}
 		tmp = PyBytes_FromStringAndSize((const char*)str, str_len);
+		if (tmp == NULL) {
+			return -1;
+		}
 		token->value = PyObject_CallOneArg(cid_ctor, tmp);
 		Py_DECREF(tmp);
 		if (token->value == NULL) {
@@ -352,7 +367,10 @@ cbrrr_parse_object(const uint8_t *buf, size_t len, PyObject **value, PyObject *c
 			idx += res;
 
 			// move ownership of sp+1 into sp
-			PyDict_SetItem(parse_stack[sp].value, key, parse_stack[sp+1].value);
+			if(PyDict_SetItem(parse_stack[sp].value, key, parse_stack[sp+1].value) < 0) {
+				idx = -1;
+				break;
+			}
 			Py_DECREF(key);
 			Py_DECREF(parse_stack[sp+1].value);
 			parse_stack[sp].count -= 1;
@@ -394,9 +412,7 @@ cbrrr_parse_dag_cbor(PyObject *self, PyObject *args)
 	if (!PyArg_ParseTuple(args, "y*O", &buf, &cid_ctor))
 		return NULL;
 
-	// XXX: check cid_ctor is callable
-
-	PyObject *value = NULL;//Py_None;
+	PyObject *value = NULL;
 
 	size_t res = cbrrr_parse_object(buf.buf, buf.len, &value, cid_ctor);
 	PyBuffer_Release(&buf);
@@ -422,7 +438,7 @@ static PyMethodDef CbrrrMethods[] = {
 
 static struct PyModuleDef cbrrrmodule = {
 	PyModuleDef_HEAD_INIT,
-	"cbrrr",   /* name of module */
+	"_cbrrr",   /* name of module */
 	NULL, /* module documentation, may be NULL */
 	-1,       /* size of per-interpreter state of the module,
 					or -1 if the module keeps state in global variables. */
@@ -431,7 +447,7 @@ static struct PyModuleDef cbrrrmodule = {
 };
 
 PyMODINIT_FUNC
-PyInit_cbrrr(void)
+PyInit__cbrrr(void)
 {
 	PyObject *m;
 

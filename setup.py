@@ -1,13 +1,19 @@
 # python3 setup.py build
 # python3 setup.py develop --user
 
-from distutils.core import setup, Extension
+from setuptools import setup, Extension
 
-module1 = Extension('cbrrr',
-                    sources = ['cbrrr.c'],
-                    extra_compile_args = ["-O3", "-Wall", "-Wextra", "-Wpedantic", "-std=c99"],)
-
-setup (name = 'cbrrr',
-       version = '0.1',
-       description = 'TODO: put some words here',
-       ext_modules = [module1])
+setup(
+	name="cbrrr",
+	version="0.2",
+	packages=["cbrrr"],
+	package_dir={"cbrrr": "src/cbrrr"},
+	description="TODO: put some words here",
+	ext_modules=[
+		Extension(
+			"_cbrrr",
+			sources=["src/cbrrr/_cbrrr.c"],
+			extra_compile_args=["-O3", "-Wall", "-Wextra", "-Wpedantic", "-std=c99"]
+		),
+	]
+)
