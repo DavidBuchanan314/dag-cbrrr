@@ -245,6 +245,9 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 		tmp = PyBytes_FromStringAndSize((const char*)str, str_len);
 		token->value = PyObject_CallOneArg(cid_ctor, tmp);
 		Py_DECREF(tmp);
+		if (token->value == NULL) {
+			return -1; // exception in cid_ctor
+		}
 
 		//token->value = PyBytes_FromStringAndSize((const char*)str, str_len);
 
