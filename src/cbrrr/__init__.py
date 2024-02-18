@@ -17,10 +17,12 @@ class CID:
 			raise ValueError("unsupported CID type")
 		self.cid_bytes = cid_bytes[1:]
 	
-	def encode(self) -> str:
+	def encode(self, base="base32") -> str:
 		"""
 		Encode to base32
 		"""
+		if base != "base32":
+			raise ValueError("unsupported base encoding")
 		return "b" + base64.b32encode(self.cid_bytes).decode().lower().rstrip("=")
 
 	def __bytes__(self):
