@@ -27,7 +27,20 @@ typedef struct {
 	// used to ensure map key ordering
 	const uint8_t *prev_key;
 	size_t prev_key_len;
-} DCToken;
+} DCToken; // also used as the parser's stack frame
+
+// growable buffer for storing the encoded result
+typedef struct {
+	uint8_t *buf;
+	size_t length;
+	size_t capacity;
+} CbrrrBuf;
+
+typedef struct {
+	PyObject *dict; // the dict, or NULL if this frame is a list
+	PyObject *list; // either the list, or the sorted map keys
+	size_t idx; // the current list index
+} EncoderStackFrame;
 
 static size_t
 cbrrr_parse_minimal_varint(const uint8_t *buf, size_t len, uint64_t *value)
@@ -442,11 +455,7 @@ cbrrr_parse_dag_cbor(PyObject *self, PyObject *args)
 
 
 
-typedef struct {
-	uint8_t *buf;
-	size_t length;
-	size_t capacity;
-} CbrrrBuf;
+
 
 static int
 cbrrr_buf_make_room(CbrrrBuf *buf, size_t len)
@@ -541,11 +550,9 @@ cbrrr_compare_map_keys(const void *a, const void *b)
 	return memcmp(str_a, str_b, len_a);
 }
 
-/*
-XXX: TODO: Make this non-recursive!!!!!!
-*/
+
 static int
-cbrrr_encode_object(CbrrrBuf *buf, PyObject *obj, PyObject* cid_type)
+cbrrr_encode_object(CbrrrBuf *buf, PyObject *obj_in, PyObject* cid_type)
 {
 	/*
 	in a slightly unscientific test, frequency counts for each type
@@ -562,143 +569,213 @@ cbrrr_encode_object(CbrrrBuf *buf, PyObject *obj, PyObject* cid_type)
 	0 float
 	*/
 
-	PyTypeObject *obj_type = Py_TYPE(obj);
+	size_t stack_len = 16;
+	EncoderStackFrame *encoder_stack = malloc(stack_len * sizeof(*encoder_stack));
 
-	if (obj_type == &PyUnicode_Type) { // string
-		size_t string_len;
-		const uint8_t *str = PyUnicode_AsUTF8AndSize(obj, &string_len);
-		if (str == NULL) {
-			return -1;
-		}
-		if (cbrrr_write_cbor_varint(buf, DCMT_TEXT_STRING, string_len) < 0) {
-			return -1;
-		}
-		return cbrrr_buf_write(buf, str, string_len);
+	if (encoder_stack == NULL) {
+		PyErr_SetString(PyExc_MemoryError, "malloc failed");
+		return -1;
 	}
-	if (obj_type == &PyBytes_Type) { // bytes
-		size_t bytes_len;
-		const uint8_t *bbuf;
-		if(PyBytes_AsStringAndSize(obj, &bbuf, &bytes_len) != 0) {
-			return -1;
-		}
-		if (cbrrr_write_cbor_varint(buf, DCMT_BYTE_STRING, bytes_len) < 0) {
-			return -1;
-		}
-		return cbrrr_buf_write(buf, bbuf, bytes_len);
+
+	// pretend we're encoding a list of length 1
+	encoder_stack[0].dict = NULL;
+	encoder_stack[0].list = PyList_New(1);
+	if (encoder_stack[0].list == NULL) {
+		return -1;
 	}
-	if (obj_type == cid_type) { // cid
-		PyObject *cidbytes_obj = PyObject_CallMethod(obj, "__bytes__", NULL);
-		if (cidbytes_obj == NULL) {
-			return -1;
+	PyList_SET_ITEM(encoder_stack[0].list, 0, Py_NewRef(obj_in));
+	encoder_stack[0].idx = 0;
+
+	size_t sp = 0;
+
+	int res = -1; // assume failure by default
+
+	for (;;) {
+		// make sure there's always at least 1 free slot at the top of the stack
+		// TODO: rework the parser state machine to be like this too?
+		if ((sp + 1) >= stack_len) {
+			stack_len *= 2; // TODO: smaller increments?
+			encoder_stack = realloc(encoder_stack, stack_len * sizeof(*encoder_stack));
+			if (encoder_stack == NULL) {
+				PyErr_SetString(PyExc_MemoryError, "realloc failed");
+				break;
+			}
 		}
-		size_t bytes_len;
-		const uint8_t *bbuf, nul=0;
-		if(PyBytes_AsStringAndSize(cidbytes_obj, &bbuf, &bytes_len) != 0) {
-			Py_DECREF(&cidbytes_obj);
-			return -1;
-		}
-		if (bytes_len != 36) {
-			PyErr_SetString(PyExc_ValueError, "Invalid CID length");
-			Py_DECREF(&cidbytes_obj);
-			return -1;
-		}
-		if (cbrrr_write_cbor_varint(buf, DCMT_TAG, 42) < 0) {
-			Py_DECREF(&cidbytes_obj);
-			return -1;
-		}
-		if (cbrrr_write_cbor_varint(buf, DCMT_BYTE_STRING, bytes_len + 1) < 0) {
-			Py_DECREF(&cidbytes_obj);
-			return -1;
-		}
-		if (cbrrr_buf_write(buf, &nul, 1) < 0) {
-			Py_DECREF(&cidbytes_obj);
-			return -1;
-		}
-		if (cbrrr_buf_write(buf, bbuf, bytes_len) < 0) {
-			Py_DECREF(&cidbytes_obj);
-			return -1;
-		}
-		Py_DECREF(&cidbytes_obj);
-		return 0;
-	}
-	if (obj_type == &PyDict_Type) {
-		PyObject *keys = PyDict_Keys(obj);
-		if (keys == NULL) {
-			return -1;
-		}
-		qsort( // it's a bit janky but we can sort the key list in-place, I think?
-			PySequence_Fast_ITEMS(keys),
-			PySequence_Fast_GET_SIZE(keys),
-			sizeof(PyObject*),
-			cbrrr_compare_map_keys
-		);
-		if (cbrrr_write_cbor_varint(buf, DCMT_MAP, PySequence_Fast_GET_SIZE(keys)) < 0) {
-			Py_DECREF(&keys);
-			return -1;
-		}
-		for (Py_ssize_t i=0; i<PySequence_Fast_GET_SIZE(keys); i++) {
-			PyObject *key = PySequence_Fast_GET_ITEM(keys, i); // borrowed ref
+
+		PyObject *obj;
+		if (encoder_stack[sp].dict == NULL) { // we're working on a list
+			if (encoder_stack[sp].idx >= PySequence_Fast_GET_SIZE(encoder_stack[sp].list)) {
+				if (sp == 0) {
+					res = 0; // success!
+					break;
+				}
+				sp--;
+				continue;
+			}
+			obj = PySequence_Fast_GET_ITEM(encoder_stack[sp].list, encoder_stack[sp].idx++); // borrowed ref
+		} else { // we're working on a dict
+			if (encoder_stack[sp].idx >= PySequence_Fast_GET_SIZE(encoder_stack[sp].list)) {
+				Py_DECREF(&encoder_stack[sp].list);
+				sp--;
+				continue;
+			}
+			PyObject *key = PySequence_Fast_GET_ITEM(encoder_stack[sp].list, encoder_stack[sp].idx++); // borrowed ref
 			if (!PyUnicode_CheckExact(key)) {
 				PyErr_SetString(PyExc_TypeError, "map keys must be strings");
-				return -1;
+				break;
 			}
-			if (cbrrr_encode_object(buf, key, cid_type) < 0) {
+			size_t key_len;
+			const uint8_t *key_str = PyUnicode_AsUTF8AndSize(key, &key_len);
+			if (key_str == NULL) {
+				break;
+			}
+			if (cbrrr_write_cbor_varint(buf, DCMT_TEXT_STRING, key_len) < 0) {
+				break;
+			}
+			if (cbrrr_buf_write(buf, key_str, key_len) < 0) {
+				break;
+			}
+			obj = PyDict_GetItem(encoder_stack[sp].dict, key); // borrwed ref
+		}
+		PyTypeObject *obj_type = Py_TYPE(obj);
+
+		if (obj_type == &PyUnicode_Type) { // string
+			size_t string_len;
+			const uint8_t *str = PyUnicode_AsUTF8AndSize(obj, &string_len);
+			if (str == NULL) {
+				break;
+			}
+			if (cbrrr_write_cbor_varint(buf, DCMT_TEXT_STRING, string_len) < 0) {
+				break;
+			}
+			if (cbrrr_buf_write(buf, str, string_len) < 0) {
+				break;
+			}
+			continue;
+		}
+		if (obj_type == &PyBytes_Type) { // bytes
+			size_t bytes_len;
+			const uint8_t *bbuf;
+			if(PyBytes_AsStringAndSize(obj, &bbuf, &bytes_len) != 0) {
+				break;
+			}
+			if (cbrrr_write_cbor_varint(buf, DCMT_BYTE_STRING, bytes_len) < 0) {
+				break;
+			}
+			if (cbrrr_buf_write(buf, bbuf, bytes_len) < 0) {
+				break;
+			}
+			continue;
+		}
+		if (obj_type == cid_type) { // cid
+			PyObject *cidbytes_obj = PyObject_CallMethod(obj, "__bytes__", NULL);
+			if (cidbytes_obj == NULL) {
+				break;
+			}
+			size_t bytes_len;
+			const uint8_t *bbuf, nul=0;
+			if(PyBytes_AsStringAndSize(cidbytes_obj, &bbuf, &bytes_len) != 0) {
+				Py_DECREF(&cidbytes_obj);
+				break;
+			}
+			if (bytes_len != 36) {
+				PyErr_SetString(PyExc_ValueError, "Invalid CID length");
+				Py_DECREF(&cidbytes_obj);
+				break;
+			}
+			if (cbrrr_write_cbor_varint(buf, DCMT_TAG, 42) < 0) {
+				Py_DECREF(&cidbytes_obj);
+				break;
+			}
+			if (cbrrr_write_cbor_varint(buf, DCMT_BYTE_STRING, bytes_len + 1) < 0) {
+				Py_DECREF(&cidbytes_obj);
+				break;
+			}
+			if (cbrrr_buf_write(buf, &nul, 1) < 0) {
+				Py_DECREF(&cidbytes_obj);
+				break;
+			}
+			if (cbrrr_buf_write(buf, bbuf, bytes_len) < 0) {
+				Py_DECREF(&cidbytes_obj);
+				break;
+			}
+			Py_DECREF(&cidbytes_obj);
+			continue;
+		}
+		if (obj_type == &PyDict_Type) { // dict
+			PyObject *keys = PyDict_Keys(obj);
+			if (keys == NULL) {
+				break;
+			}
+			qsort( // it's a bit janky but we can sort the key list in-place, I think?
+				PySequence_Fast_ITEMS(keys),
+				PySequence_Fast_GET_SIZE(keys),
+				sizeof(PyObject*),
+				cbrrr_compare_map_keys
+			);
+			if (cbrrr_write_cbor_varint(buf, DCMT_MAP, PySequence_Fast_GET_SIZE(keys)) < 0) {
 				Py_DECREF(&keys);
-				return -1;
+				break;
 			}
-			PyObject *value = PyDict_GetItem(obj, key);
-			if (value == NULL) {
-				// TODO: set exception!!!!
-				Py_DECREF(&keys);
-				return -1;
-			}
-			if (cbrrr_encode_object(buf, value, cid_type) < 0) {
-				Py_DECREF(&keys);
-				Py_DECREF(&value);
-				return -1;
-			}
-			Py_DECREF(&value);
+			sp++;
+			encoder_stack[sp].dict = obj;
+			encoder_stack[sp].list = keys;
+			encoder_stack[sp].idx = 0;
+			continue;
 		}
-		Py_DECREF(&keys);
-		return 0;
-	}
-	if (obj_type ==  &PyLong_Type) { // int
-		// we can't really do the range checks on the C side because the
-		// overflow would happen before we can detect it.
-		if (PyObject_RichCompareBool(obj, PY_ZERO, Py_GE)) {
-			if (PyObject_RichCompareBool(obj, PY_UINT64_MAX, Py_GT)) {
-				PyErr_SetString(PyExc_ValueError, "integer out of range");
-				return -1;
+		if (obj_type ==  &PyLong_Type) { // int
+			// we can't really do the range checks on the C side because the
+			// overflow would happen before we can detect it.
+			if (PyObject_RichCompareBool(obj, PY_ZERO, Py_GE)) {
+				if (PyObject_RichCompareBool(obj, PY_UINT64_MAX, Py_GT)) {
+					PyErr_SetString(PyExc_ValueError, "integer out of range");
+					break;
+				}
+				if (cbrrr_write_cbor_varint(buf, DCMT_UNSIGNED_INT, PyLong_AsUnsignedLongLongMask(obj)) < 0) {
+					break;
+				}
+			} else {
+				if (PyObject_RichCompareBool(obj, PY_UINT64_MAX_INVERTED, Py_LT)) {
+					PyErr_SetString(PyExc_ValueError, "integer out of range");
+					break;
+				}
+				if (cbrrr_write_cbor_varint(buf, DCMT_NEGATIVE_INT, ~PyLong_AsUnsignedLongLongMask(obj)) < 0) {
+					break;
+				}
 			}
-			return cbrrr_write_cbor_varint(buf, DCMT_UNSIGNED_INT, PyLong_AsUnsignedLongLongMask(obj));
-		} else {
-			if (PyObject_RichCompareBool(obj, PY_UINT64_MAX_INVERTED, Py_LT)) {
-				PyErr_SetString(PyExc_ValueError, "integer out of range");
-				return -1;
+			continue;
+		}
+		if (obj_type == &PyList_Type) {
+			if (cbrrr_write_cbor_varint(buf, DCMT_ARRAY, PySequence_Fast_GET_SIZE(obj)) < 0) {
+				break;
 			}
-			return cbrrr_write_cbor_varint(buf, DCMT_NEGATIVE_INT, ~PyLong_AsUnsignedLongLongMask(obj));
+			sp++;
+			encoder_stack[sp].dict = NULL;
+			encoder_stack[sp].list = obj;
+			encoder_stack[sp].idx = 0;
+			continue;
 		}
-	}
-	if (obj_type == &PyList_Type) {
-		if (cbrrr_write_cbor_varint(buf, DCMT_ARRAY, PySequence_Fast_GET_SIZE(obj)) < 0) {
-			return -1;
-		}
-		for (Py_ssize_t i=0; i<PySequence_Fast_GET_SIZE(obj); i++) {
-			if (cbrrr_encode_object(buf, PySequence_Fast_GET_ITEM(obj, i), cid_type) < 0) {
-				return -1;
+		if (obj == Py_None) { // none/null
+			if (cbrrr_write_cbor_varint(buf, DCMT_FLOAT, 22) < 0) {
+				break;
 			}
+			continue;
 		}
-		return 0;
-	}
-	if (obj == Py_None) { // none/null
-		return cbrrr_write_cbor_varint(buf, DCMT_FLOAT, 22);
-	}
-	if (obj_type == &PyBool_Type) { // bool
-		return cbrrr_write_cbor_varint(buf, DCMT_FLOAT, 20 + (obj == Py_True));
+		if (obj_type == &PyBool_Type) { // bool
+			if (cbrrr_write_cbor_varint(buf, DCMT_FLOAT, 20 + (obj == Py_True)) < 0) {
+				break;
+			}
+			continue;
+		}
+
+		PyErr_Format(PyExc_TypeError, "I don't know how to encode type %R", obj_type);
+		break;
 	}
 
-	PyErr_Format(PyExc_TypeError, "I don't know how to encode type %R", obj_type);
-	return -1;
+	Py_DECREF(&encoder_stack[0].list); // the one we created for ourselves
+
+	free(encoder_stack);
+	return res;
 }
 
 
