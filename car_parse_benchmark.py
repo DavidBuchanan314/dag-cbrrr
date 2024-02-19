@@ -36,8 +36,8 @@ def parse_car(stream, length):
 		#content_hash = hashlib.sha256(block_data).digest()
 		#assert(cid_raw.endswith(content_hash))
 		block = parse_dag_cbor(block_data)
-		#roundtrip = encode_dag_cbor(block)
-		#assert(block_data == roundtrip)
+		roundtrip = encode_dag_cbor(block)
+		assert(block_data == roundtrip)
 		#print(block)
 		nodes[cid_raw] = block
 	

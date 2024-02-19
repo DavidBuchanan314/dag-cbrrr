@@ -4,6 +4,9 @@
 #include <string.h>
 #include <stdint.h>
 
+PyObject *PY_ZERO;
+PyObject *PY_UINT64_MAX;
+PyObject *PY_UINT64_MAX_INVERTED;
 
 typedef enum {
 	DCMT_UNSIGNED_INT = 0,
@@ -154,11 +157,11 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 			}
 			double doubleval = ((union {uint64_t num; double dub;}){.num=be64toh(*(uint64_t*)&buf[idx])}).dub; // TODO: rewrite lol
 			if (isnan(doubleval)) {
-				PyErr_SetString(PyExc_EOFError, "NaNs are not allowed");
+				PyErr_SetString(PyExc_ValueError, "NaNs are not allowed");
 				return -1;
 			}
 			if (isinf(doubleval)) {
-				PyErr_SetString(PyExc_EOFError, "+/-Infinities are not allowed");
+				PyErr_SetString(PyExc_ValueError, "+/-Infinities are not allowed");
 				return -1;
 			}
 			token->value = PyFloat_FromDouble(doubleval);
@@ -409,8 +412,9 @@ cbrrr_parse_dag_cbor(PyObject *self, PyObject *args)
 
 	(void)self; // unused
 
-	if (!PyArg_ParseTuple(args, "y*O", &buf, &cid_ctor))
+	if (!PyArg_ParseTuple(args, "y*O", &buf, &cid_ctor)) {
 		return NULL;
+	}
 
 	PyObject *value = NULL;
 
@@ -430,18 +434,330 @@ cbrrr_parse_dag_cbor(PyObject *self, PyObject *args)
 	return restuple;
 }
 
+
+
+
+
+
+
+
+
+typedef struct {
+	uint8_t *buf;
+	size_t length;
+	size_t capacity;
+} CbrrrBuf;
+
+static int
+cbrrr_buf_make_room(CbrrrBuf *buf, size_t len)
+{
+	while (buf->capacity - buf->length < len){
+		buf->capacity = buf->capacity * 2;
+		buf->buf = realloc(buf->buf, buf->capacity);
+		if (buf->buf == NULL) {
+			PyErr_SetString(PyExc_MemoryError, "realloc failed");
+			return -1;
+		}
+	}
+	return 0;
+}
+
+static int
+cbrrr_buf_write(CbrrrBuf *buf, const uint8_t *data, size_t len)
+{
+	if (cbrrr_buf_make_room(buf, len) < 0) {
+		return -1;
+	}
+	memcpy(buf->buf+buf->length, data, len);
+	buf->length += len;
+	return 0;
+}
+
+static int
+cbrrr_write_cbor_varint(CbrrrBuf *buf, DCMajorType type, uint64_t value)
+{
+	uint8_t tmp[9];
+	/*
+	In theory, small values are more likely, so this if-chain order is probably
+	optimal. However, the compiler might try to be clever and turn it into a
+	binary tree. I haven't checked. It probably doesn't meaningfully matter.
+	*/
+	if (value < 24) {
+		tmp[0] = type << 5 | value;
+		return cbrrr_buf_write(buf, tmp, 1);
+	}
+	if (value < 0x100) {
+		tmp[0] = type << 5 | 24;
+		tmp[1] = value;
+		return cbrrr_buf_write(buf, tmp, 2);
+	}
+	if (value < 0x10000) {
+		tmp[0] = type << 5 | 25;
+		tmp[1] = value >> 8;
+		tmp[2] = value;
+		return cbrrr_buf_write(buf, tmp, 3);
+	}
+	if (value < 0x100000000L) {
+		tmp[0] = type << 5 | 26;
+		tmp[1] = value >> 24;
+		tmp[2] = value >> 16;
+		tmp[3] = value >> 8;
+		tmp[4] = value;
+		return cbrrr_buf_write(buf, tmp, 5);
+	}
+	tmp[0] = type << 5 | 27;
+	tmp[1] = value >> 56;
+	tmp[2] = value >> 48;
+	tmp[3] = value >> 40;
+	tmp[4] = value >> 32;
+	tmp[5] = value >> 24;
+	tmp[6] = value >> 16;
+	tmp[7] = value >> 8;
+	tmp[8] = value;
+	return cbrrr_buf_write(buf, tmp, 9);
+}
+
+static int
+cbrrr_compare_map_keys(const void *a, const void *b)
+{
+	// XXX: we shouldn't really be assuming that they're strings here
+	// nb: the comparison needs to be performed on the byte representations of the strings
+
+	PyObject *obj_a = *(PyObject**)a;
+	PyObject *obj_b = *(PyObject**)b;
+	size_t len_a, len_b;
+	const uint8_t *str_a = PyUnicode_AsUTF8AndSize(obj_a, &len_a);
+	const uint8_t *str_b = PyUnicode_AsUTF8AndSize(obj_b, &len_b);
+	if (str_a == NULL || str_b == NULL) {
+		return 0; // not sure this is really valid?
+	}
+	if (len_a < len_b) {
+		return -1;
+	}
+	if (len_a > len_b) {
+		return 1;
+	}
+	// len_a == len_b
+	return memcmp(str_a, str_b, len_a);
+}
+
+/*
+XXX: TODO: Make this non-recursive!!!!!!
+*/
+static int
+cbrrr_encode_object(CbrrrBuf *buf, PyObject *obj, PyObject* cid_type)
+{
+	/*
+	in a slightly unscientific test, frequency counts for each type
+	in an atproto repo looked like this:
+
+	233805 str
+	135608 bytes
+	88726 cid
+	61775 dict
+	49079 int
+	36341 list
+	12585 none
+	2 bool
+	0 float
+	*/
+
+	PyTypeObject *obj_type = Py_TYPE(obj);
+
+	if (obj_type == &PyUnicode_Type) { // string
+		size_t string_len;
+		const uint8_t *str = PyUnicode_AsUTF8AndSize(obj, &string_len);
+		if (str == NULL) {
+			return -1;
+		}
+		if (cbrrr_write_cbor_varint(buf, DCMT_TEXT_STRING, string_len) < 0) {
+			return -1;
+		}
+		return cbrrr_buf_write(buf, str, string_len);
+	}
+	if (obj_type == &PyBytes_Type) { // bytes
+		size_t bytes_len;
+		const uint8_t *bbuf;
+		if(PyBytes_AsStringAndSize(obj, &bbuf, &bytes_len) != 0) {
+			return -1;
+		}
+		if (cbrrr_write_cbor_varint(buf, DCMT_BYTE_STRING, bytes_len) < 0) {
+			return -1;
+		}
+		return cbrrr_buf_write(buf, bbuf, bytes_len);
+	}
+	if (obj_type == cid_type) { // cid
+		PyObject *cidbytes_obj = PyObject_CallMethod(obj, "__bytes__", NULL);
+		if (cidbytes_obj == NULL) {
+			return -1;
+		}
+		size_t bytes_len;
+		const uint8_t *bbuf, nul=0;
+		if(PyBytes_AsStringAndSize(cidbytes_obj, &bbuf, &bytes_len) != 0) {
+			Py_DECREF(&cidbytes_obj);
+			return -1;
+		}
+		if (bytes_len != 36) {
+			PyErr_SetString(PyExc_ValueError, "Invalid CID length");
+			Py_DECREF(&cidbytes_obj);
+			return -1;
+		}
+		if (cbrrr_write_cbor_varint(buf, DCMT_TAG, 42) < 0) {
+			Py_DECREF(&cidbytes_obj);
+			return -1;
+		}
+		if (cbrrr_write_cbor_varint(buf, DCMT_BYTE_STRING, bytes_len + 1) < 0) {
+			Py_DECREF(&cidbytes_obj);
+			return -1;
+		}
+		if (cbrrr_buf_write(buf, &nul, 1) < 0) {
+			Py_DECREF(&cidbytes_obj);
+			return -1;
+		}
+		if (cbrrr_buf_write(buf, bbuf, bytes_len) < 0) {
+			Py_DECREF(&cidbytes_obj);
+			return -1;
+		}
+		Py_DECREF(&cidbytes_obj);
+		return 0;
+	}
+	if (obj_type == &PyDict_Type) {
+		PyObject *keys = PyDict_Keys(obj);
+		if (keys == NULL) {
+			return -1;
+		}
+		qsort( // it's a bit janky but we can sort the key list in-place, I think?
+			PySequence_Fast_ITEMS(keys),
+			PySequence_Fast_GET_SIZE(keys),
+			sizeof(PyObject*),
+			cbrrr_compare_map_keys
+		);
+		if (cbrrr_write_cbor_varint(buf, DCMT_MAP, PySequence_Fast_GET_SIZE(keys)) < 0) {
+			Py_DECREF(&keys);
+			return -1;
+		}
+		for (Py_ssize_t i=0; i<PySequence_Fast_GET_SIZE(keys); i++) {
+			PyObject *key = PySequence_Fast_GET_ITEM(keys, i); // borrowed ref
+			if (!PyUnicode_CheckExact(key)) {
+				PyErr_SetString(PyExc_TypeError, "map keys must be strings");
+				return -1;
+			}
+			if (cbrrr_encode_object(buf, key, cid_type) < 0) {
+				Py_DECREF(&keys);
+				return -1;
+			}
+			PyObject *value = PyDict_GetItem(obj, key);
+			if (value == NULL) {
+				// TODO: set exception!!!!
+				Py_DECREF(&keys);
+				return -1;
+			}
+			if (cbrrr_encode_object(buf, value, cid_type) < 0) {
+				Py_DECREF(&keys);
+				Py_DECREF(&value);
+				return -1;
+			}
+			Py_DECREF(&value);
+		}
+		Py_DECREF(&keys);
+		return 0;
+	}
+	if (obj_type ==  &PyLong_Type) { // int
+		// we can't really do the range checks on the C side because the
+		// overflow would happen before we can detect it.
+		if (PyObject_RichCompareBool(obj, PY_ZERO, Py_GE)) {
+			if (PyObject_RichCompareBool(obj, PY_UINT64_MAX, Py_GT)) {
+				PyErr_SetString(PyExc_ValueError, "integer out of range");
+				return -1;
+			}
+			return cbrrr_write_cbor_varint(buf, DCMT_UNSIGNED_INT, PyLong_AsUnsignedLongLongMask(obj));
+		} else {
+			if (PyObject_RichCompareBool(obj, PY_UINT64_MAX_INVERTED, Py_LT)) {
+				PyErr_SetString(PyExc_ValueError, "integer out of range");
+				return -1;
+			}
+			return cbrrr_write_cbor_varint(buf, DCMT_NEGATIVE_INT, ~PyLong_AsUnsignedLongLongMask(obj));
+		}
+	}
+	if (obj_type == &PyList_Type) {
+		if (cbrrr_write_cbor_varint(buf, DCMT_ARRAY, PySequence_Fast_GET_SIZE(obj)) < 0) {
+			return -1;
+		}
+		for (Py_ssize_t i=0; i<PySequence_Fast_GET_SIZE(obj); i++) {
+			if (cbrrr_encode_object(buf, PySequence_Fast_GET_ITEM(obj, i), cid_type) < 0) {
+				return -1;
+			}
+		}
+		return 0;
+	}
+	if (obj == Py_None) { // none/null
+		return cbrrr_write_cbor_varint(buf, DCMT_FLOAT, 22);
+	}
+	if (obj_type == &PyBool_Type) { // bool
+		return cbrrr_write_cbor_varint(buf, DCMT_FLOAT, 20 + (obj == Py_True));
+	}
+
+	PyErr_Format(PyExc_TypeError, "I don't know how to encode type %R", obj_type);
+	return -1;
+}
+
+
+
+static PyObject *
+cbrrr_encode_dag_cbor(PyObject *self, PyObject *args)
+{
+	PyObject *obj;
+	PyObject *cid_type;
+	PyObject *res;
+	CbrrrBuf buf;
+
+	(void)self; // unused
+
+	if (!PyArg_ParseTuple(args, "OO", &obj, &cid_type)) {
+		return NULL;
+	}
+
+	buf.length = 0;
+	buf.capacity = 0x400; // TODO: tune this?
+	buf.buf = malloc(buf.capacity);
+	if (buf.buf == NULL) {
+		PyErr_SetString(PyExc_MemoryError, "malloc failed");
+		return NULL;
+	}
+
+	if (cbrrr_encode_object(&buf, obj, cid_type) < 0) {
+		res = NULL;
+	} else {
+		res = PyBytes_FromStringAndSize((const char*)buf.buf, buf.length);
+	}
+
+	free(buf.buf);
+
+	return res;
+}
+
+
+
+
+
+
+
+
+
 static PyMethodDef CbrrrMethods[] = {
 	{"parse_dag_cbor", cbrrr_parse_dag_cbor, METH_VARARGS,
 		"parse a buffer of DAG-CBOR into python objects"},
+	{"encode_dag_cbor", cbrrr_encode_dag_cbor, METH_VARARGS,
+		"convert a python object into DAG-CBOR bytes"},
 	{NULL, NULL, 0, NULL}        /* Sentinel */
 };
 
 static struct PyModuleDef cbrrrmodule = {
 	PyModuleDef_HEAD_INIT,
-	"_cbrrr",   /* name of module */
-	NULL, /* module documentation, may be NULL */
-	-1,       /* size of per-interpreter state of the module,
-					or -1 if the module keeps state in global variables. */
+	"_cbrrr",  /* name of module */
+	NULL,      /* module documentation, may be NULL */
+	-1,        /* size of per-interpreter state of the module,
+	              or -1 if the module keeps state in global variables. */
 	CbrrrMethods,
 	NULL, NULL, NULL, NULL
 };
@@ -452,10 +768,27 @@ PyInit__cbrrr(void)
 	PyObject *m;
 
 	m = PyModule_Create(&cbrrrmodule);
-	if (m == NULL)
+	if (m == NULL) {
 		return NULL;
+	}
 
-	// TODO: other stuff
+	PY_ZERO = PyLong_FromLong(0);
+	if (PY_ZERO == NULL) {
+		return NULL;
+	}
+
+	PY_UINT64_MAX = PyLong_FromUnsignedLongLong(UINT64_MAX);
+	if (PY_UINT64_MAX == NULL) {
+		Py_DECREF(&PY_ZERO);
+		return NULL;
+	}
+
+	PY_UINT64_MAX_INVERTED = PyNumber_Invert(PY_UINT64_MAX);
+	if (PY_UINT64_MAX_INVERTED == NULL) {
+		Py_DECREF(&PY_ZERO);
+		Py_DECREF(&PY_UINT64_MAX_INVERTED);
+		return NULL;
+	}
 
 	return m;
 }
