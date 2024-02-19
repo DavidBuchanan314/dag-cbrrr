@@ -577,13 +577,8 @@ cbrrr_encode_object(CbrrrBuf *buf, PyObject *obj_in, PyObject* cid_type)
 		return -1;
 	}
 
-	// pretend we're encoding a list of length 1
 	encoder_stack[0].dict = NULL;
-	encoder_stack[0].list = PyList_New(1);
-	if (encoder_stack[0].list == NULL) {
-		return -1;
-	}
-	PyList_SET_ITEM(encoder_stack[0].list, 0, Py_NewRef(obj_in));
+	encoder_stack[0].list = NULL;
 	encoder_stack[0].idx = 0;
 
 	size_t sp = 0;
@@ -603,19 +598,22 @@ cbrrr_encode_object(CbrrrBuf *buf, PyObject *obj_in, PyObject* cid_type)
 		}
 
 		PyObject *obj;
-		if (encoder_stack[sp].dict == NULL) { // we're working on a list
+		if (sp == 0) { // we're at the root level
+			if (encoder_stack[sp].idx > 0) {
+				res = 0;
+				break; // we're done!
+			}
+			encoder_stack[sp].idx++;
+			obj = obj_in;
+		} else if (encoder_stack[sp].dict == NULL) { // we're working on a list
 			if (encoder_stack[sp].idx >= PySequence_Fast_GET_SIZE(encoder_stack[sp].list)) {
-				if (sp == 0) {
-					res = 0; // success!
-					break;
-				}
 				sp--;
 				continue;
 			}
 			obj = PySequence_Fast_GET_ITEM(encoder_stack[sp].list, encoder_stack[sp].idx++); // borrowed ref
 		} else { // we're working on a dict
 			if (encoder_stack[sp].idx >= PySequence_Fast_GET_SIZE(encoder_stack[sp].list)) {
-				Py_DECREF(&encoder_stack[sp].list);
+				Py_DECREF(encoder_stack[sp].list);
 				sp--;
 				continue;
 			}
@@ -637,6 +635,8 @@ cbrrr_encode_object(CbrrrBuf *buf, PyObject *obj_in, PyObject* cid_type)
 			}
 			obj = PyDict_GetItem(encoder_stack[sp].dict, key); // borrwed ref
 		}
+
+		
 		PyTypeObject *obj_type = Py_TYPE(obj);
 
 		if (obj_type == &PyUnicode_Type) { // string
@@ -675,31 +675,31 @@ cbrrr_encode_object(CbrrrBuf *buf, PyObject *obj_in, PyObject* cid_type)
 			size_t bytes_len;
 			const uint8_t *bbuf, nul=0;
 			if(PyBytes_AsStringAndSize(cidbytes_obj, &bbuf, &bytes_len) != 0) {
-				Py_DECREF(&cidbytes_obj);
+				Py_DECREF(cidbytes_obj);
 				break;
 			}
 			if (bytes_len != 36) {
 				PyErr_SetString(PyExc_ValueError, "Invalid CID length");
-				Py_DECREF(&cidbytes_obj);
+				Py_DECREF(cidbytes_obj);
 				break;
 			}
 			if (cbrrr_write_cbor_varint(buf, DCMT_TAG, 42) < 0) {
-				Py_DECREF(&cidbytes_obj);
+				Py_DECREF(cidbytes_obj);
 				break;
 			}
 			if (cbrrr_write_cbor_varint(buf, DCMT_BYTE_STRING, bytes_len + 1) < 0) {
-				Py_DECREF(&cidbytes_obj);
+				Py_DECREF(cidbytes_obj);
 				break;
 			}
 			if (cbrrr_buf_write(buf, &nul, 1) < 0) {
-				Py_DECREF(&cidbytes_obj);
+				Py_DECREF(cidbytes_obj);
 				break;
 			}
 			if (cbrrr_buf_write(buf, bbuf, bytes_len) < 0) {
-				Py_DECREF(&cidbytes_obj);
+				Py_DECREF(cidbytes_obj);
 				break;
 			}
-			Py_DECREF(&cidbytes_obj);
+			Py_DECREF(cidbytes_obj);
 			continue;
 		}
 		if (obj_type == &PyDict_Type) { // dict
@@ -714,7 +714,7 @@ cbrrr_encode_object(CbrrrBuf *buf, PyObject *obj_in, PyObject* cid_type)
 				cbrrr_compare_map_keys
 			);
 			if (cbrrr_write_cbor_varint(buf, DCMT_MAP, PySequence_Fast_GET_SIZE(keys)) < 0) {
-				Py_DECREF(&keys);
+				Py_DECREF(keys);
 				break;
 			}
 			sp++;
@@ -772,7 +772,12 @@ cbrrr_encode_object(CbrrrBuf *buf, PyObject *obj_in, PyObject* cid_type)
 		break;
 	}
 
-	Py_DECREF(&encoder_stack[0].list); // the one we created for ourselves
+	// if we bailed out due to error, there might be some dict key lists left over on the stack
+	for (size_t i=1; i<=sp; i++) {
+		if (encoder_stack[i].dict != NULL) {
+			Py_DECREF(encoder_stack[i].list);
+		}
+	}
 
 	free(encoder_stack);
 	return res;
@@ -805,11 +810,10 @@ cbrrr_encode_dag_cbor(PyObject *self, PyObject *args)
 	if (cbrrr_encode_object(&buf, obj, cid_type) < 0) {
 		res = NULL;
 	} else {
-		res = PyBytes_FromStringAndSize((const char*)buf.buf, buf.length);
+		res = PyBytes_FromStringAndSize((const char*)buf.buf, buf.length); // nb: this incurs a copy
 	}
 
 	free(buf.buf);
-
 	return res;
 }
 
@@ -856,14 +860,14 @@ PyInit__cbrrr(void)
 
 	PY_UINT64_MAX = PyLong_FromUnsignedLongLong(UINT64_MAX);
 	if (PY_UINT64_MAX == NULL) {
-		Py_DECREF(&PY_ZERO);
+		Py_DECREF(PY_ZERO);
 		return NULL;
 	}
 
 	PY_UINT64_MAX_INVERTED = PyNumber_Invert(PY_UINT64_MAX);
 	if (PY_UINT64_MAX_INVERTED == NULL) {
-		Py_DECREF(&PY_ZERO);
-		Py_DECREF(&PY_UINT64_MAX_INVERTED);
+		Py_DECREF(PY_ZERO);
+		Py_DECREF(PY_UINT64_MAX_INVERTED);
 		return NULL;
 	}
 
