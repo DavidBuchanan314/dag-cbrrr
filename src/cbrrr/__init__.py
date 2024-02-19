@@ -21,10 +21,10 @@ class CID:
 		return "b" + base64.b32encode(self.cid_bytes).decode().lower().rstrip("=")
 
 	def is_dag_cbor_sha256(self) -> bool:
-		return self.cid_bytes.startswith(b"\x01\x71\x12\x20")
+		return self.cid_bytes.startswith(b"\x01\x71\x12\x20") and len(self.cid_bytes) == 36
 
 	def is_raw_sha256(self) -> bool:
-		return self.cid_bytes.startswith(b"\x01\x55\x12\x20")
+		return self.cid_bytes.startswith(b"\x01\x55\x12\x20") and len(self.cid_bytes) == 36
 
 	def __bytes__(self):
 		return self.cid_bytes
