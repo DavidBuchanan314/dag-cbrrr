@@ -4,9 +4,9 @@
 #include <string.h>
 #include <stdint.h>
 
-PyObject *PY_ZERO;
-PyObject *PY_UINT64_MAX;
-PyObject *PY_UINT64_MAX_INVERTED;
+static PyObject *PY_ZERO;
+static PyObject *PY_UINT64_MAX;
+static PyObject *PY_UINT64_MAX_INVERTED;
 
 typedef enum {
 	DCMT_UNSIGNED_INT = 0,
@@ -270,7 +270,12 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 			// python error set by cbrrr_parse_raw_string
 			return -1;
 		}
-		tmp = PyBytes_FromStringAndSize((const char*)str, str_len);
+		//if (str_len != 37 || (memcmp(str, "\x00\x01\x71\x12\x20", 5) && memcmp(str, "\x00\x01\x55\x12\x20", 5))) {
+		if (str_len == 0 || str[0] != 0) {
+			PyErr_SetString(PyExc_ValueError, "invalid CID");
+			return -1;
+		}
+		tmp = PyBytes_FromStringAndSize((const char*)str + 1, str_len - 1); // slice off the leading 0
 		if (tmp == NULL) {
 			return -1;
 		}
@@ -289,7 +294,7 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 	}
 }
 
-size_t
+static size_t
 cbrrr_parse_object(const uint8_t *buf, size_t len, PyObject **value, PyObject *cid_ctor)
 {
 	size_t stack_len = 16;
@@ -678,11 +683,11 @@ cbrrr_encode_object(CbrrrBuf *buf, PyObject *obj_in, PyObject* cid_type)
 				Py_DECREF(cidbytes_obj);
 				break;
 			}
-			if (bytes_len != 36) {
+			/*if (bytes_len != 36) {
 				PyErr_SetString(PyExc_ValueError, "Invalid CID length");
 				Py_DECREF(cidbytes_obj);
 				break;
-			}
+			}*/
 			if (cbrrr_write_cbor_varint(buf, DCMT_TAG, 42) < 0) {
 				Py_DECREF(cidbytes_obj);
 				break;

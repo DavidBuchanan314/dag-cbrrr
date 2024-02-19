@@ -1,8 +1,5 @@
-from typing import Any, BinaryIO
-from functools import cmp_to_key
-from enum import Enum
+from typing import Any
 import base64
-import io
 import _cbrrr
 
 
@@ -13,9 +10,7 @@ class CID:
 		"""
 		This currently only supports the CID types found in atproto.
 		"""
-		if len(cid_bytes) != 37 or not (cid_bytes.startswith(b"\x00\x01q\x12 ") or cid_bytes.startswith(b'\x00\x01U\x12 ')):
-			raise ValueError("unsupported CID type")
-		self.cid_bytes = cid_bytes[1:]
+		self.cid_bytes = cid_bytes
 	
 	def encode(self, base="base32") -> str:
 		"""
@@ -24,6 +19,12 @@ class CID:
 		if base != "base32":
 			raise ValueError("unsupported base encoding")
 		return "b" + base64.b32encode(self.cid_bytes).decode().lower().rstrip("=")
+
+	def is_dag_cbor_sha256(self) -> bool:
+		return self.cid_bytes.startswith(b"\x01\x71\x12\x20")
+
+	def is_raw_sha256(self) -> bool:
+		return self.cid_bytes.startswith(b"\x01\x55\x12\x20")
 
 	def __bytes__(self):
 		return self.cid_bytes
