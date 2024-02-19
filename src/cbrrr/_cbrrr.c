@@ -691,7 +691,7 @@ cbrrr_encode_object(CbrrrBuf *buf, PyObject *obj_in, PyObject* cid_type)
 				Py_DECREF(cidbytes_obj);
 				break;
 			}
-			if (cbrrr_buf_write(buf, &nul, 1) < 0) {
+			if (cbrrr_buf_write(buf, &nul, sizeof(nul)) < 0) {
 				Py_DECREF(cidbytes_obj);
 				break;
 			}
@@ -763,6 +763,28 @@ cbrrr_encode_object(CbrrrBuf *buf, PyObject *obj_in, PyObject* cid_type)
 		}
 		if (obj_type == &PyBool_Type) { // bool
 			if (cbrrr_write_cbor_varint(buf, DCMT_FLOAT, 20 + (obj == Py_True)) < 0) {
+				break;
+			}
+			continue;
+		}
+		if (obj_type == &PyFloat_Type) {
+			double doubleval = PyFloat_AS_DOUBLE(obj);
+			if (isnan(doubleval)) {
+				PyErr_SetString(PyExc_ValueError, "NaNs are not allowed");
+				break;
+			}
+			if (isinf(doubleval)) {
+				PyErr_SetString(PyExc_ValueError, "+/-Infinities are not allowed");
+				break;
+			}
+
+			// we can't use cbrrr_write_cbor_varint because it'd use the wrong sizes
+			uint8_t tmp = DCMT_FLOAT << 5 | 27;
+			if (cbrrr_buf_write(buf, &tmp, sizeof(tmp)) < 0) {
+				break;
+			}
+			uint64_t dub_int = htobe64(((union {uint64_t num; double dub;}){.dub=doubleval}).num);
+			if (cbrrr_buf_write(buf, &dub_int, sizeof(dub_int)) < 0) {
 				break;
 			}
 			continue;
