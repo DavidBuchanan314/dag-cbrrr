@@ -1,7 +1,10 @@
 from typing import Any
 import base64
+import hashlib
 import _cbrrr
 
+CIDV1_DAG_CBOR_SHA256_32_PFX = b"\x01\x71\x12\x20"
+CIDV1_RAW_SHA256_32_PFX = b"\x01\x55\x12\x20"
 
 class CID:
 	__slots__ = ("cid_bytes",)
@@ -12,6 +15,14 @@ class CID:
 		"""
 		self.cid_bytes = cid_bytes
 	
+	@classmethod
+	def cidv1_dag_cbor_sha256_32_from(cls, data: bytes) -> "CID":
+		return CIDV1_DAG_CBOR_SHA256_32_PFX + hashlib.sha256(data).digest()
+
+	@classmethod
+	def cidv1_raw_sha256_32_from(cls, data: bytes) -> "CID":
+		return CIDV1_RAW_SHA256_32_PFX + hashlib.sha256(data).digest()
+	
 	def encode(self, base="base32") -> str:
 		"""
 		Encode to base32
@@ -21,10 +32,10 @@ class CID:
 		return "b" + base64.b32encode(self.cid_bytes).decode().lower().rstrip("=")
 
 	def is_cidv1_dag_cbor_sha256_32(self) -> bool:
-		return self.cid_bytes.startswith(b"\x01\x71\x12\x20") and len(self.cid_bytes) == 36
+		return self.cid_bytes.startswith(CIDV1_DAG_CBOR_SHA256_32_PFX) and len(self.cid_bytes) == 36
 
 	def is_cidv1_raw_sha256_32(self) -> bool:
-		return self.cid_bytes.startswith(b"\x01\x55\x12\x20") and len(self.cid_bytes) == 36
+		return self.cid_bytes.startswith(CIDV1_RAW_SHA256_32_PFX) and len(self.cid_bytes) == 36
 
 	def __bytes__(self):
 		return self.cid_bytes
@@ -40,11 +51,13 @@ class CID:
 			return False
 		return self.cid_bytes == __value.cid_bytes
 
-def parse_dag_cbor(data: bytes) -> Any:
+DagCborTypes = str | bytes | int | bool | float | CID | list | dict | None
+
+def parse_dag_cbor(data: bytes) -> DagCborTypes:
 	parsed, length = _cbrrr.parse_dag_cbor(data, CID)
 	if length != len(data):
 		raise ValueError("did not parse to end of buffer")
 	return parsed
 
-def encode_dag_cbor(obj: Any) -> bytes:
+def encode_dag_cbor(obj: DagCborTypes) -> bytes:
 	return _cbrrr.encode_dag_cbor(obj, CID)
