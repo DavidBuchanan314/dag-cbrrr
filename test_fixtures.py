@@ -16,10 +16,10 @@ class CID:
 	def __str__(self) -> str:
 		#print(self.cid_bytes[:5])
 		# XXX: this is a hack! do proper multiformat logic
-		if self.cid_bytes.startswith(b'\x00\x01'):
-			return "b" + base64.b32encode(self.cid_bytes[1:]).decode().lower().rstrip("=")
+		if self.cid_bytes.startswith(b'\x01'):
+			return "b" + base64.b32encode(self.cid_bytes).decode().lower().rstrip("=")
 		else:
-			return base58.b58encode(self.cid_bytes[1:]).decode()
+			return base58.b58encode(self.cid_bytes).decode()
 
 # XXX: this is not a good DAG-JSON encoder, it's just here because I need it
 # to verify the test results
