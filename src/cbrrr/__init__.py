@@ -17,12 +17,25 @@ class CID:
 	
 	@classmethod
 	def cidv1_dag_cbor_sha256_32_from(cls, data: bytes) -> "CID":
-		return CIDV1_DAG_CBOR_SHA256_32_PFX + hashlib.sha256(data).digest()
+		return cls(CIDV1_DAG_CBOR_SHA256_32_PFX + hashlib.sha256(data).digest())
 
 	@classmethod
 	def cidv1_raw_sha256_32_from(cls, data: bytes) -> "CID":
-		return CIDV1_RAW_SHA256_32_PFX + hashlib.sha256(data).digest()
+		return cls(CIDV1_RAW_SHA256_32_PFX + hashlib.sha256(data).digest())
 	
+	@classmethod
+	def decode(cls, data: bytes | str) -> "CID":
+		if type(data) is bytes:
+			return cls(data)  # TODO: is this correct??? should we check for and strip leading 0?
+
+		if data.startswith("b"):
+			data = data[1:].rstrip("=") # strip b, and existing padding
+			data += "=" * ((-len(data)) % 8) # add back correct amount of padding (python is fussy)
+			decoded = base64.b32decode(data, casefold=True) # TODO: do we care about map01?
+			return cls(decoded)
+
+		raise ValueError("I don't know how to decode this CID")
+
 	def encode(self, base="base32") -> str:
 		"""
 		Encode to base32
@@ -59,5 +72,5 @@ def parse_dag_cbor(data: bytes) -> DagCborTypes:
 		raise ValueError("did not parse to end of buffer")
 	return parsed
 
-def encode_dag_cbor(obj: DagCborTypes) -> bytes:
-	return _cbrrr.encode_dag_cbor(obj, CID)
+def encode_dag_cbor(obj: DagCborTypes, atjson_mode=False) -> bytes:
+	return _cbrrr.encode_dag_cbor(obj, CID, atjson_mode)
