@@ -29,7 +29,8 @@ class CID:
 			return cls(data)  # TODO: is this correct??? should we check for and strip leading 0?
 
 		if data.startswith("b"):
-			data = data[1:].rstrip("=") # strip b, and existing padding
+			if data.endswith("="):
+				raise ValueError("unexpected base32 padding")
 			data += "=" * ((-len(data)) % 8) # add back correct amount of padding (python is fussy)
 			decoded = base64.b32decode(data, casefold=True) # TODO: do we care about map01?
 			return cls(decoded)
