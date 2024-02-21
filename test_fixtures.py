@@ -31,10 +31,6 @@ class DagJsonEncoder(json.JSONEncoder):
 			return {"/": str(o)}
 		return json.JSONEncoder.default(self, o)
 
-def serialise_dag_json(object):
-	# XXX: sort_keys probably uses the wrong sorting logic for >ascii codepoints
-	res = json.dumps(object, cls=DagJsonEncoder, separators=(",", ":"), ensure_ascii=False, sort_keys=True).encode()
-	return res.replace(b"e-08", b"e-8") # dirty hack to match json standard form exponents (this is a problem with my ad-hoc dag-json encoder, not in the dag-cbor parser)
 
 num_passed = 0
 num_tested = 0
@@ -49,15 +45,16 @@ for subdir in os.listdir(FIXTURE_PATH):
 	paths = os.listdir(dirpath)
 	dag_cbor = open(next(dirpath + p for p in paths if p.endswith(".dag-cbor")), "rb").read()
 	dag_json = open(next(dirpath + p for p in paths if p.endswith(".dag-json")), "rb").read()
+	py_normalised_json = json.dumps(json.loads(dag_json)) # roundtrip thru python, this makes sure floats etc are in python-flavoured encodings
 
 	num_tested += 1
 
 	try:
 		result, parsed_len = cbrrr._cbrrr.parse_dag_cbor(dag_cbor, CID)
-		reserialised = serialise_dag_json(result)
+		reserialised = json.dumps(result, cls=DagJsonEncoder, sort_keys=True)
 		#print(dag_json)
 		#print(reserialised)
-		assert(reserialised == dag_json)
+		assert(reserialised == py_normalised_json)
 		print("PASS", dirpath)
 		num_passed += 1
 	except Exception as e:
