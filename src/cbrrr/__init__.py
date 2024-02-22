@@ -1,4 +1,3 @@
-from typing import Any
 import base64
 import hashlib
 import _cbrrr
@@ -29,6 +28,7 @@ class CID:
 			return cls(data)  # TODO: is this correct??? should we check for and strip leading 0?
 
 		if data.startswith("b"):
+			data = data[1:] # TODO: try to avoid this?
 			if data.endswith("="):
 				raise ValueError("unexpected base32 padding")
 			data += "=" * ((-len(data)) % 8) # add back correct amount of padding (python is fussy)
@@ -67,8 +67,8 @@ class CID:
 
 DagCborTypes = str | bytes | int | bool | float | CID | list | dict | None
 
-def parse_dag_cbor(data: bytes) -> DagCborTypes:
-	parsed, length = _cbrrr.parse_dag_cbor(data, CID)
+def parse_dag_cbor(data: bytes, atjson_mode=False) -> DagCborTypes:
+	parsed, length = _cbrrr.parse_dag_cbor(data, CID, atjson_mode)
 	if length != len(data):
 		raise ValueError("did not parse to end of buffer")
 	return parsed

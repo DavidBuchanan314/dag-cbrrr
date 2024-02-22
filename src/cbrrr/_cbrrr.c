@@ -134,7 +134,7 @@ cbrrr_parse_raw_string(const uint8_t *buf, size_t len, DCMajorType type, const u
 // returns number of bytes parsed, -1 on failure
 // todo: put error explanation in error token?
 static size_t
-cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_ctor)
+cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_ctor, int atjson_mode)
 {
 	uint64_t info;
 	size_t idx = 0, res;
@@ -209,7 +209,7 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 			return -1;
 		}
 		token->value = PyNumber_Invert(tmp);
-		Py_DECREF(tmp); // XXX
+		Py_DECREF(tmp);
 		if (token->value == NULL) {
 			return -1;
 		}
@@ -222,6 +222,9 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 		token->value = PyBytes_FromStringAndSize((const char *)&buf[idx], info);
 		if (token->value == NULL) {
 			return -1;
+		}
+		if (atjson_mode) {
+			// TODO: wrap in {"$bytes", "b64..."}
 		}
 		return idx + info;
 	case DCMT_TEXT_STRING:
@@ -286,7 +289,9 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 			return -1; // exception in cid_ctor
 		}
 
-		//token->value = PyBytes_FromStringAndSize((const char*)str, str_len);
+		if (atjson_mode) {
+			// TODO: wrap in {"$link", "b32..."}
+		}
 
 		return idx + res;
 	default:
@@ -296,8 +301,10 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 }
 
 static size_t
-cbrrr_parse_object(const uint8_t *buf, size_t len, PyObject **value, PyObject *cid_ctor)
+cbrrr_parse_object(const uint8_t *buf, size_t len, PyObject **value, PyObject *cid_ctor, int atjson_mode)
 {
+	/* The stack will get realloc'd whenever we run out (and freed on return) */
+	/* stack[sp+1] is used like a local variable to hold all parsed tokens */
 	size_t stack_len = 16;
 	DCToken *parse_stack = malloc(stack_len * sizeof(*parse_stack));
 
@@ -306,7 +313,8 @@ cbrrr_parse_object(const uint8_t *buf, size_t len, PyObject **value, PyObject *c
 		return -1;
 	}
 
-	// pretend that we're parsing an array of length 1
+	/* pretend that we're parsing an array of length 1
+	   (avoids needing to special-case root-level parsing) */
 	parse_stack[0].type = DCMT_ARRAY;
 	parse_stack[0].value = PyList_New(1);
 	parse_stack[0].count = 1;
@@ -317,18 +325,18 @@ cbrrr_parse_object(const uint8_t *buf, size_t len, PyObject **value, PyObject *c
 	/* parser stack machine thing... if it looks confusing it's because it is */
 
 	for (;;) {
-		if (parse_stack[sp].count == 0) {
-			if (sp == 0) {
-				*value = PyList_GET_ITEM(parse_stack[0].value, 0);
-				Py_INCREF(*value);
+		if (parse_stack[sp].count == 0) { /* If we're done on this level of the stack */
+			if (sp == 0) { /* no more stack left, parsing is complete! */
+				/* pull the parsed result out of the dummy list of length 1 we created at the start */
+				*value = Py_NewRef(PyList_GET_ITEM(parse_stack[0].value, 0));
 				break;
 			}
-			sp -= 1; 
+			sp -= 1; /* "return" to the previous stack frame */
 			continue;
 		}
 
-		if (parse_stack[sp].type == DCMT_ARRAY) {
-			size_t res = cbrrr_parse_token(&buf[idx], len-idx, &parse_stack[sp+1], cid_ctor);
+		if (parse_stack[sp].type == DCMT_ARRAY) { /* if we're currently parsing an array */
+			size_t res = cbrrr_parse_token(&buf[idx], len-idx, &parse_stack[sp+1], cid_ctor, atjson_mode);
 			if (res == (size_t)-1) {
 				idx = -1;
 				break;
@@ -342,7 +350,7 @@ cbrrr_parse_object(const uint8_t *buf, size_t len, PyObject **value, PyObject *c
 				parse_stack[sp+1].value
 			);
 			parse_stack[sp].count -= 1;
-		} else { // DCMT_MAP
+		} else { /* if we're currently parsing a map */
 			const u_int8_t *str;
 			size_t str_len;
 			size_t res = cbrrr_parse_raw_string(&buf[idx], len-idx, DCMT_TEXT_STRING, &str, &str_len);
@@ -380,7 +388,7 @@ cbrrr_parse_object(const uint8_t *buf, size_t len, PyObject **value, PyObject *c
 			parse_stack[sp].prev_key = str;
 			parse_stack[sp].prev_key_len = str_len;
 
-			res = cbrrr_parse_token(&buf[idx], len-idx, &parse_stack[sp+1], cid_ctor);
+			res = cbrrr_parse_token(&buf[idx], len-idx, &parse_stack[sp+1], cid_ctor, atjson_mode);
 			if (res == (size_t)-1) {
 				idx = -1;
 				break;
@@ -398,6 +406,8 @@ cbrrr_parse_object(const uint8_t *buf, size_t len, PyObject **value, PyObject *c
 			parse_stack[sp].count -= 1;
 		}
 
+		/* If the token we just parsed was the start of an array or map,
+		   push a new stack frame, growing the stack if necessary */
 		if ((parse_stack[sp+1].type == DCMT_ARRAY) || (parse_stack[sp+1].type == DCMT_MAP)) {
 			sp += 1;
 			if ((sp + 1) >= stack_len) {
@@ -428,16 +438,17 @@ cbrrr_parse_dag_cbor(PyObject *self, PyObject *args)
 {
 	Py_buffer buf;
 	PyObject *cid_ctor;
+	int atjson_mode;
 
 	(void)self; // unused
 
-	if (!PyArg_ParseTuple(args, "y*O", &buf, &cid_ctor)) {
+	if (!PyArg_ParseTuple(args, "y*Op", &buf, &cid_ctor, &atjson_mode)) {
 		return NULL;
 	}
 
 	PyObject *value = NULL;
 
-	size_t res = cbrrr_parse_object(buf.buf, buf.len, &value, cid_ctor);
+	size_t res = cbrrr_parse_object(buf.buf, buf.len, &value, cid_ctor, atjson_mode);
 	PyBuffer_Release(&buf);
 
 	if (res == (size_t)-1) {
@@ -538,7 +549,6 @@ cbrrr_write_cbor_varint(CbrrrBuf *buf, DCMajorType type, uint64_t value)
 
 
 
-
 /*
 Decodes maybe-padded base64 according to https://atproto.com/specs/data-model#bytes (RFC-4648, section 4)
 Returns 0 on success, -1 on failure (setting a python exception).
@@ -592,9 +602,9 @@ cbrrr_write_cbor_bytes_from_b64(CbrrrBuf *buf, const unsigned char *b64_str, siz
 			PyErr_SetString(PyExc_ValueError, "invalid b64 character");
 			return -1;
 		}
-		*bufptr++ = (a << 2) | ((b >> 4) & 0x03);
-		*bufptr++ = (b << 4) | ((c >> 2) & 0x0f);
-		*bufptr++ = (c << 6) | ((d >> 0) & 0x3f);
+		*bufptr++ = (a << 2) | (b >> 4);
+		*bufptr++ = (b << 4) | (c >> 2);
+		*bufptr++ = (c << 6) | (d >> 0);
 	}
 	switch (str_len - str_i)
 	{
@@ -606,8 +616,8 @@ cbrrr_write_cbor_bytes_from_b64(CbrrrBuf *buf, const unsigned char *b64_str, siz
 			PyErr_SetString(PyExc_ValueError, "invalid b64 character");
 			return -1;
 		}
-		*bufptr++ = (a << 2) | ((b >> 4) & 0x03);
-		*bufptr++ = (b << 4) | ((c >> 2) & 0x0f);
+		*bufptr++ = (a << 2) | (b >> 4);
+		*bufptr++ = (b << 4) | (c >> 2);
 		// should we check (c << 6) & 0xff == 0?
 		break;
 	
@@ -618,7 +628,7 @@ cbrrr_write_cbor_bytes_from_b64(CbrrrBuf *buf, const unsigned char *b64_str, siz
 			PyErr_SetString(PyExc_ValueError, "invalid b64 character");
 			return -1;
 		}
-		*bufptr++ = (a << 2) | ((b >> 4) & 0x03);
+		*bufptr++ = (a << 2) | (b >> 4);
 		// should we check (b << 4) & 0xff == 0?
 		break;
 	
