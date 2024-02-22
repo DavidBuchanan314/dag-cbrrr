@@ -50,7 +50,7 @@ for subdir in os.listdir(FIXTURE_PATH):
 	num_tested += 1
 
 	try:
-		result, parsed_len = cbrrr._cbrrr.parse_dag_cbor(dag_cbor, CID)
+		result, parsed_len = cbrrr._cbrrr.decode_dag_cbor(dag_cbor, CID, False)
 		reserialised = json.dumps(result, cls=DagJsonEncoder, sort_keys=True)
 		#print(dag_json)
 		#print(reserialised)

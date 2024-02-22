@@ -67,8 +67,8 @@ class CID:
 
 DagCborTypes = str | bytes | int | bool | float | CID | list | dict | None
 
-def parse_dag_cbor(data: bytes, atjson_mode=False) -> DagCborTypes:
-	parsed, length = _cbrrr.parse_dag_cbor(data, CID, atjson_mode)
+def decode_dag_cbor(data: bytes, atjson_mode=False) -> DagCborTypes:
+	parsed, length = _cbrrr.decode_dag_cbor(data, CID, atjson_mode)
 	if length != len(data):
 		raise ValueError("did not parse to end of buffer")
 	return parsed

@@ -434,7 +434,7 @@ cbrrr_parse_object(const uint8_t *buf, size_t len, PyObject **value, PyObject *c
 
 
 static PyObject *
-cbrrr_parse_dag_cbor(PyObject *self, PyObject *args)
+cbrrr_decode_dag_cbor(PyObject *self, PyObject *args)
 {
 	Py_buffer buf;
 	PyObject *cid_ctor;
@@ -1025,7 +1025,7 @@ cbrrr_encode_dag_cbor(PyObject *self, PyObject *args)
 
 
 static PyMethodDef CbrrrMethods[] = {
-	{"parse_dag_cbor", cbrrr_parse_dag_cbor, METH_VARARGS,
+	{"decode_dag_cbor", cbrrr_decode_dag_cbor, METH_VARARGS,
 		"parse a buffer of DAG-CBOR into python objects"},
 	{"encode_dag_cbor", cbrrr_encode_dag_cbor, METH_VARARGS,
 		"convert a python object into DAG-CBOR bytes"},

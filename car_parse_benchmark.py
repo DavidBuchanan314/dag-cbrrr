@@ -1,7 +1,7 @@
 import io
 import sys
 import time
-from cbrrr import parse_dag_cbor, encode_dag_cbor
+from cbrrr import decode_dag_cbor, encode_dag_cbor
 
 sys.setrecursionlimit(99999999)
 
@@ -26,7 +26,7 @@ def parse_car(stream, length):
 	header_len = parse_varint(stream)
 	header_bytes = stream.read(header_len)
 	assert(len(header_bytes) == header_len)
-	car_header = parse_dag_cbor(header_bytes)
+	car_header = decode_dag_cbor(header_bytes)
 	assert(car_header.get("version") == 1)
 	assert(len(car_header.get("roots", [])) == 1)
 
@@ -43,7 +43,7 @@ def parse_car(stream, length):
 		#content_hash = hashlib.sha256(block_data).digest()
 		#assert(cid_raw.endswith(content_hash))
 		start = time.time()
-		block = parse_dag_cbor(block_data)
+		block = decode_dag_cbor(block_data)
 		#block = libipld.decode_dag_cbor(block_data)
 		dectime += time.time()-start
 		start = time.time()
