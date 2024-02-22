@@ -5,10 +5,8 @@ from setuptools import setup, Extension
 
 setup(
 	name="cbrrr",
-	version="0.2",
 	packages=["cbrrr"],
 	package_dir={"cbrrr": "src/cbrrr"},
-	description="TODO: put some words here",
 	ext_modules=[
 		Extension(
 			"_cbrrr",
