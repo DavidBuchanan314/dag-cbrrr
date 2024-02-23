@@ -44,7 +44,7 @@ typedef struct {
 typedef struct {
 	PyObject *dict; // the dict, or NULL if this frame is a list
 	PyObject *list; // either the list, or the sorted map keys
-	size_t idx; // the current list index
+	Py_ssize_t idx; // the current list index
 } EncoderStackFrame;
 
 static const uint8_t B64_CHARSET[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -360,7 +360,7 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 			return -1;
 		}
 		if (atjson_mode) { /* wrap in {"$bytes", "b64..."} */
-			tmp = cbrrr_bytes_to_b64_string_nopad((const uint8_t*)&buf[idx], info);
+			tmp = cbrrr_bytes_to_b64_string_nopad((uint8_t*)&buf[idx], info);
 			if (tmp == NULL) {
 				return -1;
 			}
@@ -982,9 +982,9 @@ cbrrr_compare_map_keys(const void *a, const void *b)
 
 	PyObject *obj_a = *(PyObject**)a;
 	PyObject *obj_b = *(PyObject**)b;
-	size_t len_a, len_b;
-	const uint8_t *str_a = PyUnicode_AsUTF8AndSize(obj_a, &len_a);
-	const uint8_t *str_b = PyUnicode_AsUTF8AndSize(obj_b, &len_b);
+	Py_ssize_t len_a, len_b;
+	const char *str_a = PyUnicode_AsUTF8AndSize(obj_a, &len_a);
+	const char *str_b = PyUnicode_AsUTF8AndSize(obj_b, &len_b);
 
 	/* Handle the (invalid!) case where one or both args are not strings
 	   (they'll get properly type-checked later, we don't have a good way
@@ -1082,15 +1082,15 @@ cbrrr_encode_object(CbrrrBuf *buf, PyObject *obj_in, PyObject* cid_type, int atj
 				PyErr_SetString(PyExc_TypeError, "map keys must be strings");
 				break;
 			}
-			size_t key_len;
-			const uint8_t *key_str = PyUnicode_AsUTF8AndSize(key, &key_len);
+			Py_ssize_t key_len;
+			const char *key_str = PyUnicode_AsUTF8AndSize(key, &key_len);
 			if (key_str == NULL) {
 				break;
 			}
 			if (cbrrr_write_cbor_varint(buf, DCMT_TEXT_STRING, key_len) < 0) {
 				break;
 			}
-			if (cbrrr_buf_write(buf, key_str, key_len) < 0) {
+			if (cbrrr_buf_write(buf, (uint8_t *)key_str, key_len) < 0) {
 				break;
 			}
 			obj = PyDict_GetItem(encoder_stack[sp].dict, key); // borrwed ref
@@ -1100,15 +1100,15 @@ cbrrr_encode_object(CbrrrBuf *buf, PyObject *obj_in, PyObject* cid_type, int atj
 		PyTypeObject *obj_type = Py_TYPE(obj);
 
 		if (obj_type == &PyUnicode_Type) { // string
-			size_t string_len;
-			const uint8_t *str = PyUnicode_AsUTF8AndSize(obj, &string_len);
+			Py_ssize_t string_len;
+			const char *str = PyUnicode_AsUTF8AndSize(obj, &string_len);
 			if (str == NULL) {
 				break;
 			}
 			if (cbrrr_write_cbor_varint(buf, DCMT_TEXT_STRING, string_len) < 0) {
 				break;
 			}
-			if (cbrrr_buf_write(buf, str, string_len) < 0) {
+			if (cbrrr_buf_write(buf, (uint8_t *)str, string_len) < 0) {
 				break;
 			}
 			continue;
@@ -1118,20 +1118,20 @@ cbrrr_encode_object(CbrrrBuf *buf, PyObject *obj_in, PyObject* cid_type, int atj
 				PyErr_SetString(PyExc_TypeError, "unexpected bytes object in atjson mode");
 				break;
 			}
-			size_t bytes_len;
-			const uint8_t *bbuf;
+			Py_ssize_t bytes_len;
+			char *bbuf;
 			if(PyBytes_AsStringAndSize(obj, &bbuf, &bytes_len) != 0) {
 				break;
 			}
 			if (cbrrr_write_cbor_varint(buf, DCMT_BYTE_STRING, bytes_len) < 0) {
 				break;
 			}
-			if (cbrrr_buf_write(buf, bbuf, bytes_len) < 0) {
+			if (cbrrr_buf_write(buf, (uint8_t*)bbuf, bytes_len) < 0) {
 				break;
 			}
 			continue;
 		}
-		if (obj_type == cid_type) { // cid
+		if (obj_type == (PyTypeObject*)cid_type) { // cid
 			if (atjson_mode) {
 				PyErr_SetString(PyExc_TypeError, "unexpected CID object in atjson mode");
 				break;
@@ -1140,8 +1140,9 @@ cbrrr_encode_object(CbrrrBuf *buf, PyObject *obj_in, PyObject* cid_type, int atj
 			if (cidbytes_obj == NULL) {
 				break;
 			}
-			size_t bytes_len;
-			const uint8_t *bbuf, nul=0;
+			Py_ssize_t bytes_len;
+			char *bbuf;
+			const uint8_t nul = 0;
 			if(PyBytes_AsStringAndSize(cidbytes_obj, &bbuf, &bytes_len) != 0) {
 				Py_DECREF(cidbytes_obj);
 				break;
@@ -1163,7 +1164,7 @@ cbrrr_encode_object(CbrrrBuf *buf, PyObject *obj_in, PyObject* cid_type, int atj
 				Py_DECREF(cidbytes_obj);
 				break;
 			}
-			if (cbrrr_buf_write(buf, bbuf, bytes_len) < 0) {
+			if (cbrrr_buf_write(buf, (uint8_t*)bbuf, bytes_len) < 0) {
 				Py_DECREF(cidbytes_obj);
 				break;
 			}
@@ -1182,8 +1183,8 @@ cbrrr_encode_object(CbrrrBuf *buf, PyObject *obj_in, PyObject* cid_type, int atj
 					Py_DECREF(keys);
 					break;
 				}
-				size_t string_len;
-				const uint8_t *str = PyUnicode_AsUTF8AndSize(key, &string_len); // does this fail gracefully if the item is not a string?
+				Py_ssize_t string_len;
+				const char *str = PyUnicode_AsUTF8AndSize(key, &string_len); // does this fail gracefully if the item is not a string?
 				if (str == NULL) {
 					Py_DECREF(keys);
 					break;
@@ -1202,7 +1203,7 @@ cbrrr_encode_object(CbrrrBuf *buf, PyObject *obj_in, PyObject* cid_type, int atj
 					if (cbrrr_write_cbor_varint(buf, DCMT_TAG, 42) < 0) {
 						break;
 					}
-					if (cbrrr_write_cbor_bytes_from_multibase_b32_nopad(buf, str, string_len) < 0) {
+					if (cbrrr_write_cbor_bytes_from_multibase_b32_nopad(buf, (uint8_t*)str, string_len) < 0) {
 						break;
 					}
 					continue;
@@ -1218,7 +1219,7 @@ cbrrr_encode_object(CbrrrBuf *buf, PyObject *obj_in, PyObject* cid_type, int atj
 					if (str == NULL) {
 						break;
 					}
-					if (cbrrr_write_cbor_bytes_from_b64(buf, str, string_len) < 0) {
+					if (cbrrr_write_cbor_bytes_from_b64(buf, (uint8_t*)str, string_len) < 0) {
 						break;
 					}
 					continue;
@@ -1304,7 +1305,7 @@ cbrrr_encode_object(CbrrrBuf *buf, PyObject *obj_in, PyObject* cid_type, int atj
 				break;
 			}
 			uint64_t dub_int = htobe64(((union {uint64_t num; double dub;}){.dub=doubleval}).num);
-			if (cbrrr_buf_write(buf, &dub_int, sizeof(dub_int)) < 0) {
+			if (cbrrr_buf_write(buf, (uint8_t*)&dub_int, sizeof(dub_int)) < 0) {
 				break;
 			}
 			continue;
