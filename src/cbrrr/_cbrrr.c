@@ -94,6 +94,87 @@ cbrrr_bytes_to_b64_string_nopad(const uint8_t *data, size_t data_len)
 }
 
 
+static const uint8_t B32_CHARSET[] = "abcdefghijklmnopqrstuvwxyz234567";
+
+static PyObject*
+cbrrr_bytes_to_b32_multibase(const uint8_t *data, size_t data_len)
+{
+	PyObject *res = PyUnicode_New(1 + (data_len*8+4)/5, 127); /* ASCII-only (b32 charset) */
+	if (res == NULL) {
+		return NULL;
+	}
+	uint8_t *resbuf = PyUnicode_DATA(res);
+	*resbuf++ = 'b'; // b prefix indicates multibase base32
+	uint8_t a, b, c, d, e;
+	size_t data_i = 0;
+	while ( data_i + 4 < data_len) {
+		a = data[data_i++];
+		b = data[data_i++];
+		c = data[data_i++];
+		d = data[data_i++];
+		e = data[data_i++];
+		// 76543 21076 54321 07654 32107 65432 10765 43210
+		// aaaaa aaabb bbbbb bcccc ccccd ddddd ddeee eeeee
+		// 43210 43210 43210 43210 43210 43210 43210 43210
+		*resbuf++ = B32_CHARSET[(           (a >> 3)) & 0x1f];
+		*resbuf++ = B32_CHARSET[((a << 2) | (b >> 6)) & 0x1f];
+		*resbuf++ = B32_CHARSET[(           (b >> 1)) & 0x1f];
+		*resbuf++ = B32_CHARSET[((b << 4) | (c >> 4)) & 0x1f];
+		*resbuf++ = B32_CHARSET[((c << 1) | (d >> 7)) & 0x1f];
+		*resbuf++ = B32_CHARSET[(           (d >> 2)) & 0x1f];
+		*resbuf++ = B32_CHARSET[((d << 3) | (e >> 5)) & 0x1f];
+		*resbuf++ = B32_CHARSET[((e << 0)           ) & 0x1f];
+	}
+	switch (data_len - data_i) // TODO: can this be simplified, with fallrthu perhaps?
+	{
+	case 4:
+		a = data[data_i++];
+		b = data[data_i++];
+		c = data[data_i++];
+		d = data[data_i++];
+		*resbuf++ = B32_CHARSET[(           (a >> 3)) & 0x1f];
+		*resbuf++ = B32_CHARSET[((a << 2) | (b >> 6)) & 0x1f];
+		*resbuf++ = B32_CHARSET[(           (b >> 1)) & 0x1f];
+		*resbuf++ = B32_CHARSET[((b << 4) | (c >> 4)) & 0x1f];
+		*resbuf++ = B32_CHARSET[((c << 1) | (d >> 7)) & 0x1f];
+		*resbuf++ = B32_CHARSET[(           (d >> 2)) & 0x1f];
+		*resbuf++ = B32_CHARSET[((d << 3)           ) & 0x1f];
+		break;
+	case 3:
+		a = data[data_i++];
+		b = data[data_i++];
+		c = data[data_i++];
+		*resbuf++ = B32_CHARSET[(           (a >> 3)) & 0x1f];
+		*resbuf++ = B32_CHARSET[((a << 2) | (b >> 6)) & 0x1f];
+		*resbuf++ = B32_CHARSET[(           (b >> 1)) & 0x1f];
+		*resbuf++ = B32_CHARSET[((b << 4) | (c >> 4)) & 0x1f];
+		*resbuf++ = B32_CHARSET[((c << 1)           ) & 0x1f];
+		break;
+	case 2:
+		a = data[data_i++];
+		b = data[data_i++];
+		*resbuf++ = B32_CHARSET[(           (a >> 3)) & 0x1f];
+		*resbuf++ = B32_CHARSET[((a << 2) | (b >> 6)) & 0x1f];
+		*resbuf++ = B32_CHARSET[(           (b >> 1)) & 0x1f];
+		*resbuf++ = B32_CHARSET[((b << 4)           ) & 0x1f];
+		break;
+	case 1:
+		a = data[data_i++];
+		*resbuf++ = B32_CHARSET[(           (a >> 3)) & 0x1f];
+		*resbuf++ = B32_CHARSET[((a << 2)           ) & 0x1f];
+		break;
+	case 0:
+		// nothing to do here
+		break;
+	default:
+		PyErr_SetString(PyExc_AssertionError, "unreachable!?");
+		Py_DECREF(res);
+		return NULL;
+	}
+	return res;
+}
+
+
 static size_t
 cbrrr_parse_minimal_varint(const uint8_t *buf, size_t len, uint64_t *value)
 {
@@ -342,19 +423,11 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 			PyErr_SetString(PyExc_ValueError, "invalid CID");
 			return -1;
 		}
-		tmp = PyBytes_FromStringAndSize((const char*)str + 1, str_len - 1); // slice off the leading 0
-		if (tmp == NULL) {
-			return -1;
-		}
-		token->value = PyObject_CallOneArg(cid_ctor, tmp);
-		Py_DECREF(tmp);
-		if (token->value == NULL) {
-			return -1; // exception in cid_ctor
-		}
-
 		if (atjson_mode) { /* wrap in {"$link", "b32..."} */
-			tmp = PyObject_CallMethodNoArgs(token->value, PY_STRING_ENCODE);
-			Py_DECREF(token->value);
+			tmp = cbrrr_bytes_to_b32_multibase((const uint8_t*)str + 1, str_len - 1); // slice off the leading 0
+			if (tmp == NULL) {
+				return -1;
+			}
 			token->value = PyDict_New();
 			if (token->value == NULL) {
 				Py_DECREF(tmp);
@@ -365,6 +438,16 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 				return -1;
 			}
 			Py_DECREF(tmp);
+		} else {
+			tmp = PyBytes_FromStringAndSize((const char*)str + 1, str_len - 1); // slice off the leading 0
+			if (tmp == NULL) {
+				return -1;
+			}
+			token->value = PyObject_CallOneArg(cid_ctor, tmp);
+			Py_DECREF(tmp);
+			if (token->value == NULL) {
+				return -1; // exception in cid_ctor
+			}
 		}
 
 		return idx + res;
