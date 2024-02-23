@@ -196,7 +196,7 @@ cbrrr_parse_minimal_varint(const uint8_t *buf, size_t len, uint64_t *value)
 			PyErr_SetString(PyExc_EOFError, "not enough bytes left in buffer");
 			return -1;
 		}
-		*value = be16toh(*(uint16_t *)buf);
+		*value = buf[0] << 8 | buf[1] << 0;
 		if (*value < 0x100) {
 			PyErr_SetString(PyExc_ValueError, "integer not minimally encoded");
 			return -1;
@@ -207,7 +207,8 @@ cbrrr_parse_minimal_varint(const uint8_t *buf, size_t len, uint64_t *value)
 			PyErr_SetString(PyExc_EOFError, "not enough bytes left in buffer");
 			return -1;
 		}
-		*value = be32toh(*(uint32_t *)buf);
+		*value = (uint64_t)buf[0] << 24 | (uint64_t)buf[1] << 16
+		       | (uint64_t)buf[2] << 8  | (uint64_t)buf[3] << 0;
 		if (*value < 0x10000) {
 			PyErr_SetString(PyExc_ValueError, "integer not minimally encoded");
 			return -1;
@@ -218,7 +219,10 @@ cbrrr_parse_minimal_varint(const uint8_t *buf, size_t len, uint64_t *value)
 			PyErr_SetString(PyExc_EOFError, "not enough bytes left in buffer");
 			return -1;
 		}
-		*value = be64toh(*(uint64_t *)buf);
+		*value = (uint64_t)buf[0] << 56 | (uint64_t)buf[1] << 48
+		       | (uint64_t)buf[2] << 40 | (uint64_t)buf[3] << 32
+		       | (uint64_t)buf[4] << 24 | (uint64_t)buf[5] << 16
+		       | (uint64_t)buf[6] << 8  | (uint64_t)buf[7] << 0;
 		if (*value < 0x100000000L) {
 			PyErr_SetString(PyExc_ValueError, "integer not minimally encoded");
 			return -1;
@@ -300,7 +304,12 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 				PyErr_SetString(PyExc_EOFError, "not enough bytes left in buffer");
 				return -1;
 			}
-			double doubleval = ((union {uint64_t num; double dub;}){.num=be64toh(*(uint64_t*)&buf[idx])}).dub; // TODO: rewrite lol
+			uint64_t intval = \
+				  (uint64_t)buf[idx+0] << 56 | (uint64_t)buf[idx+1] << 48
+				| (uint64_t)buf[idx+2] << 40 | (uint64_t)buf[idx+3] << 32
+				| (uint64_t)buf[idx+4] << 24 | (uint64_t)buf[idx+5] << 16
+				| (uint64_t)buf[idx+6] << 8  | (uint64_t)buf[idx+7] << 0;
+			double doubleval = ((union {uint64_t num; double dub;}){.num=intval}).dub; // TODO: rewrite lol
 			if (isnan(doubleval)) {
 				PyErr_SetString(PyExc_ValueError, "NaNs are not allowed");
 				return -1;
@@ -636,7 +645,7 @@ cbrrr_decode_dag_cbor(PyObject *self, PyObject *args)
 
 
 static int
-cbrrr_buf_make_room(CbrrrBuf *buf, size_t len)
+cbrrr_buf_make_room(CbrrrBuf *buf, size_t len) // sets python exception on fail
 {
 	while (buf->capacity - buf->length < len){
 		buf->capacity = buf->capacity * 2;
@@ -738,6 +747,10 @@ cbrrr_write_cbor_bytes_from_b64(CbrrrBuf *buf, const uint8_t *b64_str, size_t st
 		PyErr_SetString(PyExc_ValueError, "invalid b64 length");
 		return -1;
 	}
+
+	/* nb: this length integer could overflow, but earlier checks should enforce
+	   that str_len fits in the buffer, so unless you have on the order of 2^64
+	   bytes of RAM, it's all good */
 	size_t decoded_length = (str_len*3)/4;
 	if (cbrrr_write_cbor_varint(buf, DCMT_BYTE_STRING, decoded_length) < 0) {
 		return -1;
@@ -826,11 +839,15 @@ static int
 cbrrr_write_cbor_bytes_from_multibase_b32_nopad(CbrrrBuf *buf, const uint8_t *b32_str, size_t str_len)
 {
 	if (str_len == 0 || b32_str[0] != 'b') {
+		PyErr_SetString(PyExc_ValueError, "invalid/unsupported multibase prefix");
 		return -1; // multibase prefix
 	}
 	b32_str++;
 	str_len--;
 
+	/* nb: this length integer could overflow, but earlier checks should enforce
+	   that str_len fits in the buffer, so unless you have on the order of 2^64
+	   bytes of RAM, it's all good */
 	size_t decoded_length = (str_len*5)/8;
 	if (cbrrr_write_cbor_varint(buf, DCMT_BYTE_STRING, decoded_length + 1) < 0) {
 		return -1;
@@ -1200,12 +1217,14 @@ cbrrr_encode_object(CbrrrBuf *buf, PyObject *obj_in, PyObject* cid_type, int atj
 				}
 				// fallthru
 			}
-			qsort( // it's a bit janky but we can sort the key list in-place, I think?
-				PySequence_Fast_ITEMS(keys),
-				PySequence_Fast_GET_SIZE(keys),
-				sizeof(PyObject*),
-				cbrrr_compare_map_keys
-			);
+			if (PySequence_Fast_GET_SIZE(keys) > 1) { /* don't try to sort empty or 1-length lists! */
+				qsort( // it's a bit janky but we can sort the key list in-place, I think?
+					PySequence_Fast_ITEMS(keys),
+					PySequence_Fast_GET_SIZE(keys),
+					sizeof(PyObject*),
+					cbrrr_compare_map_keys
+				);
+			}
 			if (cbrrr_write_cbor_varint(buf, DCMT_MAP, PySequence_Fast_GET_SIZE(keys)) < 0) {
 				Py_DECREF(keys);
 				break;
