@@ -4,10 +4,14 @@
 #include <string.h>
 #include <stdint.h>
 
+// XXX: not sure having these as globals is the right thing to do?
 static PyObject *PY_ZERO;
 static PyObject *PY_UINT64_MAX;
 static PyObject *PY_UINT64_MAX_INVERTED;
+static PyObject *PY_STRING_ENCODE;
 static PyObject *PY_STRING_DECODE;
+static PyObject *PY_STRING_$LINK;
+static PyObject *PY_STRING_$BYTES;
 
 typedef enum {
 	DCMT_UNSIGNED_INT = 0,
@@ -42,6 +46,53 @@ typedef struct {
 	PyObject *list; // either the list, or the sorted map keys
 	size_t idx; // the current list index
 } EncoderStackFrame;
+
+static const uint8_t B64_CHARSET[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+static PyObject*
+cbrrr_bytes_to_b64_string_nopad(const uint8_t *data, size_t data_len)
+{
+	PyObject *res = PyUnicode_New((data_len*4+2)/3, 127); /* ASCII-only (b64 charset) */
+	if (res == NULL) {
+		return NULL;
+	}
+	uint8_t *resbuf = PyUnicode_DATA(res);
+	uint8_t a, b, c;
+	size_t data_i = 0;
+	while ( data_i + 2 < data_len) {
+		a = data[data_i++];
+		b = data[data_i++];
+		c = data[data_i++];
+		*resbuf++ = B64_CHARSET[(           (a >> 2)) & 0x3f];
+		*resbuf++ = B64_CHARSET[((a << 4) | (b >> 4)) & 0x3f];
+		*resbuf++ = B64_CHARSET[((b << 2) | (c >> 6)) & 0x3f];
+		*resbuf++ = B64_CHARSET[((c << 0)           ) & 0x3f];
+	}
+	switch (data_len - data_i)
+	{
+	case 2:
+		a = data[data_i++];
+		b = data[data_i++];
+		*resbuf++ = B64_CHARSET[(           (a >> 2)) & 0x3f];
+		*resbuf++ = B64_CHARSET[((a << 4) | (b >> 4)) & 0x3f];
+		*resbuf++ = B64_CHARSET[((b << 2)           ) & 0x3f];
+		break;
+	case 1:
+		a = data[data_i++];
+		*resbuf++ = B64_CHARSET[(           (a >> 2)) & 0x3f];
+		*resbuf++ = B64_CHARSET[((a << 4)           ) & 0x3f];
+		break;
+	case 0:
+		// nothing to do here
+		break;
+	default:
+		PyErr_SetString(PyExc_AssertionError, "unreachable!?");
+		Py_DECREF(res);
+		return NULL;
+	}
+	return res;
+}
+
 
 static size_t
 cbrrr_parse_minimal_varint(const uint8_t *buf, size_t len, uint64_t *value)
@@ -132,7 +183,6 @@ cbrrr_parse_raw_string(const uint8_t *buf, size_t len, DCMajorType type, const u
 }
 
 // returns number of bytes parsed, -1 on failure
-// todo: put error explanation in error token?
 static size_t
 cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_ctor, int atjson_mode)
 {
@@ -219,12 +269,26 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 			PyErr_SetString(PyExc_EOFError, "not enough bytes left in buffer");
 			return -1;
 		}
-		token->value = PyBytes_FromStringAndSize((const char *)&buf[idx], info);
-		if (token->value == NULL) {
-			return -1;
-		}
-		if (atjson_mode) {
-			// TODO: wrap in {"$bytes", "b64..."}
+		if (atjson_mode) { /* wrap in {"$bytes", "b64..."} */
+			tmp = cbrrr_bytes_to_b64_string_nopad((const uint8_t*)&buf[idx], info);
+			if (tmp == NULL) {
+				return -1;
+			}
+			token->value = PyDict_New();
+			if (token->value == NULL) {
+				Py_DECREF(tmp);
+				return -1;
+			}
+			if (PyDict_SetItem(token->value, PY_STRING_$BYTES, tmp) != 0) {
+				Py_DECREF(tmp);
+				return -1;
+			}
+			Py_DECREF(tmp);
+		} else {
+			token->value = PyBytes_FromStringAndSize((const char*)&buf[idx], info);
+			if (token->value == NULL) {
+				return -1;
+			}
 		}
 		return idx + info;
 	case DCMT_TEXT_STRING:
@@ -274,7 +338,6 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 			// python error set by cbrrr_parse_raw_string
 			return -1;
 		}
-		//if (str_len != 37 || (memcmp(str, "\x00\x01\x71\x12\x20", 5) && memcmp(str, "\x00\x01\x55\x12\x20", 5))) {
 		if (str_len == 0 || str[0] != 0) {
 			PyErr_SetString(PyExc_ValueError, "invalid CID");
 			return -1;
@@ -289,8 +352,19 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 			return -1; // exception in cid_ctor
 		}
 
-		if (atjson_mode) {
-			// TODO: wrap in {"$link", "b32..."}
+		if (atjson_mode) { /* wrap in {"$link", "b32..."} */
+			tmp = PyObject_CallMethodNoArgs(token->value, PY_STRING_ENCODE);
+			Py_DECREF(token->value);
+			token->value = PyDict_New();
+			if (token->value == NULL) {
+				Py_DECREF(tmp);
+				return -1;
+			}
+			if (PyDict_SetItem(token->value, PY_STRING_$LINK, tmp) != 0) {
+				Py_DECREF(tmp);
+				return -1;
+			}
+			Py_DECREF(tmp);
 		}
 
 		return idx + res;
@@ -361,7 +435,7 @@ cbrrr_parse_object(const uint8_t *buf, size_t len, PyObject **value, PyObject *c
 			}
 			idx += res;
 			// check unicode validity before parsing next token to avoid leaking a reference when we bail out
-			// TODO: fast-path(s) for common/short keys
+			// TODO:PERF: fast-path(s) for common/short keys, via interning?
 			PyObject *key = PyUnicode_FromStringAndSize((const char*)str, str_len);
 			if (key == NULL) { // unicode error
 				idx = -1;
@@ -411,7 +485,7 @@ cbrrr_parse_object(const uint8_t *buf, size_t len, PyObject **value, PyObject *c
 		if ((parse_stack[sp+1].type == DCMT_ARRAY) || (parse_stack[sp+1].type == DCMT_MAP)) {
 			sp += 1;
 			if ((sp + 1) >= stack_len) {
-				stack_len *= 2; // TODO: smaller increments?
+				stack_len *= 2; // TODO:PERF: smaller increments?
 				parse_stack = realloc(parse_stack, stack_len * sizeof(*parse_stack));
 				if (parse_stack == NULL) {
 					PyErr_SetString(PyExc_MemoryError, "realloc failed");
@@ -648,7 +722,6 @@ cbrrr_write_cbor_bytes_from_b64(CbrrrBuf *buf, const unsigned char *b64_str, siz
 static int
 cbrrr_compare_map_keys(const void *a, const void *b)
 {
-	// XXX: we shouldn't really be assuming that they're strings here
 	// nb: the comparison needs to be performed on the byte representations of the strings
 
 	PyObject *obj_a = *(PyObject**)a;
@@ -656,16 +729,29 @@ cbrrr_compare_map_keys(const void *a, const void *b)
 	size_t len_a, len_b;
 	const uint8_t *str_a = PyUnicode_AsUTF8AndSize(obj_a, &len_a);
 	const uint8_t *str_b = PyUnicode_AsUTF8AndSize(obj_b, &len_b);
+
+	/* Handle the (invalid!) case where one or both args are not strings
+	   (they'll get properly type-checked later, we don't have a good way
+	   to raise an exception from within qsort) */
 	if (str_a == NULL || str_b == NULL) {
-		return 0; // not sure this is really valid?
+		/* this logic is here to make sure the comparison fn is transitive,
+		   lest we invoke UB, as in
+		   https://www.openwall.com/lists/oss-security/2024/01/30/7 */
+		if (str_a == NULL && str_b == NULL) {
+			return 0;
+		}
+		return str_a == NULL ? -1 : 1; /* non-strings sort first */
 	}
+
+	/* shorter strings sort first */
 	if (len_a < len_b) {
 		return -1;
 	}
 	if (len_a > len_b) {
 		return 1;
 	}
-	// len_a == len_b
+	
+	/* do byte-wise comparision for equal-length strings */
 	return memcmp(str_a, str_b, len_a);
 }
 
@@ -706,9 +792,8 @@ cbrrr_encode_object(CbrrrBuf *buf, PyObject *obj_in, PyObject* cid_type, int atj
 
 	for (;;) {
 		// make sure there's always at least 1 free slot at the top of the stack
-		// TODO: rework the parser state machine to be like this too?
 		if ((sp + 1) >= stack_len) {
-			stack_len *= 2; // TODO: smaller increments?
+			stack_len *= 2; // TODO:PERF: smaller increments?
 			encoder_stack = realloc(encoder_stack, stack_len * sizeof(*encoder_stack));
 			if (encoder_stack == NULL) {
 				PyErr_SetString(PyExc_MemoryError, "realloc failed");
@@ -826,7 +911,6 @@ cbrrr_encode_object(CbrrrBuf *buf, PyObject *obj_in, PyObject* cid_type, int atj
 			if (keys == NULL) {
 				break;
 			}
-			// TODO: verify all are strings here?
 			if (atjson_mode && PySequence_Fast_GET_SIZE(keys) == 1) {// logic for $link, $bytes
 				PyObject *key = PySequence_Fast_GET_ITEM(keys, 0);
 				if (!PyUnicode_CheckExact(key)) {
@@ -999,7 +1083,7 @@ cbrrr_encode_dag_cbor(PyObject *self, PyObject *args)
 	}
 
 	buf.length = 0;
-	buf.capacity = 0x400; // TODO: tune this?
+	buf.capacity = 0x400; // TODO:PERF: tune this?
 	buf.buf = malloc(buf.capacity);
 	if (buf.buf == NULL) {
 		PyErr_SetString(PyExc_MemoryError, "malloc failed");
@@ -1053,28 +1137,28 @@ PyInit__cbrrr(void)
 	}
 
 	PY_ZERO = PyLong_FromLong(0);
-	if (PY_ZERO == NULL) {
-		return NULL;
-	}
-
 	PY_UINT64_MAX = PyLong_FromUnsignedLongLong(UINT64_MAX);
-	if (PY_UINT64_MAX == NULL) {
-		Py_DECREF(PY_ZERO);
-		return NULL;
-	}
-
 	PY_UINT64_MAX_INVERTED = PyNumber_Invert(PY_UINT64_MAX);
-	if (PY_UINT64_MAX_INVERTED == NULL) {
-		Py_DECREF(PY_ZERO);
-		Py_DECREF(PY_UINT64_MAX_INVERTED);
-		return NULL;
-	}
-
-	PY_STRING_DECODE = PyUnicode_FromString("decode"); // TODO: do we care about interning?
-	if (PY_STRING_DECODE == NULL) {
-		Py_DECREF(PY_ZERO);
-		Py_DECREF(PY_UINT64_MAX_INVERTED);
-		Py_DECREF(PY_STRING_DECODE);
+	PY_STRING_ENCODE = PyUnicode_InternFromString("encode");
+	PY_STRING_DECODE = PyUnicode_InternFromString("decode");
+	PY_STRING_$LINK = PyUnicode_InternFromString("$link");
+	PY_STRING_$BYTES = PyUnicode_InternFromString("$bytes");
+	if (
+		   PY_ZERO == NULL
+		|| PY_UINT64_MAX == NULL
+		|| PY_UINT64_MAX_INVERTED == NULL
+		|| PY_STRING_ENCODE == NULL
+		|| PY_STRING_DECODE == NULL
+		|| PY_STRING_$LINK == NULL
+		|| PY_STRING_$BYTES == NULL
+	) {
+		Py_XDECREF(PY_ZERO);
+		Py_XDECREF(PY_UINT64_MAX);
+		Py_XDECREF(PY_UINT64_MAX_INVERTED);
+		Py_XDECREF(PY_STRING_ENCODE);
+		Py_XDECREF(PY_STRING_DECODE);
+		Py_XDECREF(PY_STRING_$LINK);
+		Py_XDECREF(PY_STRING_$BYTES);
 		return NULL;
 	}
 
