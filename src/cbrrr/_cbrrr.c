@@ -1114,6 +1114,10 @@ cbrrr_encode_object(CbrrrBuf *buf, PyObject *obj_in, PyObject* cid_type, int atj
 			continue;
 		}
 		if (obj_type == &PyBytes_Type) { // bytes
+			if (atjson_mode) {
+				PyErr_SetString(PyExc_TypeError, "unexpected bytes object in atjson mode");
+				break;
+			}
 			size_t bytes_len;
 			const uint8_t *bbuf;
 			if(PyBytes_AsStringAndSize(obj, &bbuf, &bytes_len) != 0) {
@@ -1128,6 +1132,10 @@ cbrrr_encode_object(CbrrrBuf *buf, PyObject *obj_in, PyObject* cid_type, int atj
 			continue;
 		}
 		if (obj_type == cid_type) { // cid
+			if (atjson_mode) {
+				PyErr_SetString(PyExc_TypeError, "unexpected CID object in atjson mode");
+				break;
+			}
 			PyObject *cidbytes_obj = PyObject_CallMethod(obj, "__bytes__", NULL);
 			if (cidbytes_obj == NULL) {
 				break;
