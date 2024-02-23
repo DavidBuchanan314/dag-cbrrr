@@ -3,6 +3,8 @@ import sys
 import time
 from cbrrr import decode_dag_cbor, encode_dag_cbor
 
+ATJSON_MODE = True
+
 sys.setrecursionlimit(99999999)
 
 # LEB128 (has not been strictly tested!)
@@ -43,11 +45,11 @@ def parse_car(stream, length):
 		#content_hash = hashlib.sha256(block_data).digest()
 		#assert(cid_raw.endswith(content_hash))
 		start = time.time()
-		block = decode_dag_cbor(block_data, atjson_mode=True)
+		block = decode_dag_cbor(block_data, atjson_mode=ATJSON_MODE)
 		#block = libipld.decode_dag_cbor(block_data)
 		dectime += time.time()-start
 		start = time.time()
-		roundtrip = encode_dag_cbor(block, atjson_mode=True)
+		roundtrip = encode_dag_cbor(block, atjson_mode=ATJSON_MODE)
 		enctime += time.time()-start
 		assert(block_data == roundtrip)
 		#print(block)

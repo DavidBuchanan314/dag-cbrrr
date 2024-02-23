@@ -424,7 +424,7 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 			return -1;
 		}
 		if (atjson_mode) { /* wrap in {"$link", "b32..."} */
-			tmp = cbrrr_bytes_to_b32_multibase((const uint8_t*)str + 1, str_len - 1); // slice off the leading 0
+			tmp = cbrrr_bytes_to_b32_multibase(str + 1, str_len - 1); // slice off the leading 0
 			if (tmp == NULL) {
 				return -1;
 			}
@@ -730,7 +730,7 @@ static const uint8_t B64_DECODE_LUT[] = {
 };
 
 static int
-cbrrr_write_cbor_bytes_from_b64(CbrrrBuf *buf, const unsigned char *b64_str, size_t str_len)
+cbrrr_write_cbor_bytes_from_b64(CbrrrBuf *buf, const uint8_t *b64_str, size_t str_len)
 {
 	// strip padding
 	while (str_len && b64_str[str_len - 1] == '=') str_len--;
@@ -791,6 +791,162 @@ cbrrr_write_cbor_bytes_from_b64(CbrrrBuf *buf, const unsigned char *b64_str, siz
 	
 	case 0:
 		break;
+
+	default:
+		PyErr_SetString(PyExc_AssertionError, "unreachable!?");
+		return -1;
+	}
+
+	return 0;
+}
+
+
+// nb: case insensitive
+static const uint8_t B32_DECODE_LUT[] = {
+	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+	-1, -1, 26, 27, 28, 29, 30, 31, -1, -1, -1, -1, -1, -1, -1, -1,
+	-1,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14,
+	15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, -1, -1, -1, -1, -1,
+	-1,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14,
+	15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, -1, -1, -1, -1, -1,
+	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+};
+
+
+static int
+cbrrr_write_cbor_bytes_from_multibase_b32_nopad(CbrrrBuf *buf, const uint8_t *b32_str, size_t str_len)
+{
+	if (str_len == 0 || b32_str[0] != 'b') {
+		return -1; // multibase prefix
+	}
+	b32_str++;
+	str_len--;
+
+	size_t decoded_length = (str_len*5)/8;
+	if (cbrrr_write_cbor_varint(buf, DCMT_BYTE_STRING, decoded_length + 1) < 0) {
+		return -1;
+	}
+	if (cbrrr_buf_make_room(buf, decoded_length + 1) < 0) {
+		return -1;
+	}
+	uint8_t *bufptr = buf->buf + buf->length;
+	buf->length += decoded_length + 1;
+
+	*bufptr++ = 0; // multibase raw
+
+	size_t str_i = 0;
+	uint8_t a, b, c, d, e, f, g, h;
+	while (str_i+7 < str_len) {
+		a = B32_DECODE_LUT[b32_str[str_i++]];
+		b = B32_DECODE_LUT[b32_str[str_i++]];
+		c = B32_DECODE_LUT[b32_str[str_i++]];
+		d = B32_DECODE_LUT[b32_str[str_i++]];
+		e = B32_DECODE_LUT[b32_str[str_i++]];
+		f = B32_DECODE_LUT[b32_str[str_i++]];
+		g = B32_DECODE_LUT[b32_str[str_i++]];
+		h = B32_DECODE_LUT[b32_str[str_i++]];
+		if ((a | b | c | d | e | f | g | h) & 0x80) {
+			PyErr_SetString(PyExc_ValueError, "invalid b32 character");
+			return -1;
+		}
+		// 43210432 10432104 32104321 04321043 21043210
+		// aaaaabbb bbcccccd ddddeeee efffffgg ggghhhhh
+		// 76543210 76543210 76543210 76543210 76543210
+		*bufptr++ =            (a << 3) | (b >> 2);
+		*bufptr++ = (b << 6) | (c << 1) | (d >> 4);
+		*bufptr++ = (d << 4) |            (e >> 1);
+		*bufptr++ = (e << 7) | (f << 2) | (g >> 3);
+		*bufptr++ = (g << 5) | (h << 0)           ;
+	}
+	switch (str_len - str_i)
+	{
+	case 7:
+		a = B32_DECODE_LUT[b32_str[str_i++]];
+		b = B32_DECODE_LUT[b32_str[str_i++]];
+		c = B32_DECODE_LUT[b32_str[str_i++]];
+		d = B32_DECODE_LUT[b32_str[str_i++]];
+		e = B32_DECODE_LUT[b32_str[str_i++]];
+		f = B32_DECODE_LUT[b32_str[str_i++]];
+		g = B32_DECODE_LUT[b32_str[str_i++]];
+		if ((a | b | c | d | e | f | g) & 0x80) {
+			PyErr_SetString(PyExc_ValueError, "invalid b32 character");
+			return -1;
+		}
+		*bufptr++ =            (a << 3) | (b >> 2);
+		*bufptr++ = (b << 6) | (c << 1) | (d >> 4);
+		*bufptr++ = (d << 4) |            (e >> 1);
+		*bufptr++ = (e << 7) | (f << 2) | (g >> 3);
+		if (g & 0x07) {
+			PyErr_SetString(PyExc_ValueError, "non-canonical b32 encoding");
+			return -1;
+		}
+		break;
+	case 5:
+		a = B32_DECODE_LUT[b32_str[str_i++]];
+		b = B32_DECODE_LUT[b32_str[str_i++]];
+		c = B32_DECODE_LUT[b32_str[str_i++]];
+		d = B32_DECODE_LUT[b32_str[str_i++]];
+		e = B32_DECODE_LUT[b32_str[str_i++]];
+		if ((a | b | c | d | e) & 0x80) {
+			PyErr_SetString(PyExc_ValueError, "invalid b32 character");
+			return -1;
+		}
+		*bufptr++ =            (a << 3) | (b >> 2);
+		*bufptr++ = (b << 6) | (c << 1) | (d >> 4);
+		*bufptr++ = (d << 4) |            (e >> 1);
+		if (e & 0x01) {
+			PyErr_SetString(PyExc_ValueError, "non-canonical b32 encoding");
+			return -1;
+		}
+		break;
+	case 4:
+		a = B32_DECODE_LUT[b32_str[str_i++]];
+		b = B32_DECODE_LUT[b32_str[str_i++]];
+		c = B32_DECODE_LUT[b32_str[str_i++]];
+		d = B32_DECODE_LUT[b32_str[str_i++]];
+		if ((a | b | c | d) & 0x80) {
+			PyErr_SetString(PyExc_ValueError, "invalid b32 character");
+			return -1;
+		}
+		*bufptr++ =            (a << 3) | (b >> 2);
+		*bufptr++ = (b << 6) | (c << 1) | (d >> 4);
+		if (d & 0x0f) {
+			PyErr_SetString(PyExc_ValueError, "non-canonical b32 encoding");
+			return -1;
+		}
+		break;
+	case 2:
+		a = B32_DECODE_LUT[b32_str[str_i++]];
+		b = B32_DECODE_LUT[b32_str[str_i++]];
+		if ((a | b) & 0x80) {
+			PyErr_SetString(PyExc_ValueError, "invalid b32 character");
+			return -1;
+		}
+		*bufptr++ =            (a << 3) | (b >> 2);
+		if (b & 0x03) {
+			PyErr_SetString(PyExc_ValueError, "non-canonical b32 encoding");
+			return -1;
+		}
+		break;
+	
+	case 0:
+		// nothing to do here
+		break;
+
+	case 1:
+	case 3:
+	case 6:
+		PyErr_SetString(PyExc_ValueError, "invalid b32 length");
+		return -1;
 
 	default:
 		PyErr_SetString(PyExc_AssertionError, "unreachable!?");
@@ -1009,42 +1165,37 @@ cbrrr_encode_object(CbrrrBuf *buf, PyObject *obj_in, PyObject* cid_type, int atj
 				}
 				if (string_len == 5 && strcmp(str, "$link") == 0) { // CID
 					PyObject *cid_str = PyDict_GetItem(obj, key); // borrowed
+					Py_DECREF(keys);
 					if (!PyUnicode_CheckExact(cid_str)) { // also handles the case where b64_str is NULL
 						PyErr_SetString(PyExc_TypeError, "$link field value must be a string");
-						Py_DECREF(keys);
 						break;
 					}
-					PyObject *cid = PyObject_CallMethodOneArg(cid_type, PY_STRING_DECODE, cid_str);
-					if (cid == NULL) {
-						Py_DECREF(keys);
+					str = PyUnicode_AsUTF8AndSize(cid_str, &string_len); // reusing these variables
+					if (str == NULL) {
 						break;
 					}
-					if(cbrrr_encode_object(buf, cid, cid_type, 0) < 0) { // call ourselves recursively (max 1 level of recursion though)
-						Py_DECREF(keys);
-						Py_DECREF(cid);
+					if (cbrrr_write_cbor_varint(buf, DCMT_TAG, 42) < 0) {
 						break;
 					}
-					Py_DECREF(keys);
-					Py_DECREF(cid);
+					if (cbrrr_write_cbor_bytes_from_multibase_b32_nopad(buf, str, string_len) < 0) {
+						break;
+					}
 					continue;
 				}
 				if (string_len == 6 && strcmp(str, "$bytes") == 0) { // bytes
 					PyObject *b64_str = PyDict_GetItem(obj, key); // borrowed
+					Py_DECREF(keys);
 					if (!PyUnicode_CheckExact(b64_str)) { // also handles the case where b64_str is NULL
 						PyErr_SetString(PyExc_TypeError, "$bytes field value must be a string");
-						Py_DECREF(keys);
 						break;
 					}
 					str = PyUnicode_AsUTF8AndSize(b64_str, &string_len); // reusing these variables
 					if (str == NULL) {
-						Py_DECREF(keys);
 						break;
 					}
-					if (cbrrr_write_cbor_bytes_from_b64(buf, str, string_len)) {
-						Py_DECREF(keys);
+					if (cbrrr_write_cbor_bytes_from_b64(buf, str, string_len) < 0) {
 						break;
 					}
-					Py_DECREF(keys);
 					continue;
 				}
 				// fallthru
