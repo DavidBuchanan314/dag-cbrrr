@@ -1,9 +1,9 @@
 # dag-cbrrr
-Convert between DAG-CBOR and Python objects and hundreds of megabytes per second.
+Convert between DAG-CBOR and Python objects and hundreds of megabytes per second. Take a look at the [benchmarks](https://github.com/DavidBuchanan314/dag-cbor-benchmark)
 
 Other than speed, a distinguishing feature is that it operates *non-recursively*. This means you can parse arbitrarily deeply nested objects without running out of call stack (although of course you might still run out of heap)
 
-## Status: UNSAFE/UNSTABLE/EXPERIMENTAL/WIP
+## Status: WIP, but almost in a usable state!
 
 ### Installation
 
@@ -25,4 +25,4 @@ decoded = cbrrr.decode_dag_cbor(encoded)
 print(decoded)  # {'hello': [b'world', 1, 2, 3]}
 ```
 
-For more detailed API information, take a look at the commented [src/cbrrr/__init__.py](python source) (more docs coming soon™)
+For more detailed API information, take a look at the commented [python source](src/cbrrr/__init__.py), which provides an ergonomic type-annotated wraper for the native module (more docs coming soon™)
