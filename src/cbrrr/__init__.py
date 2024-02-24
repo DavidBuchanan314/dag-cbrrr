@@ -106,6 +106,8 @@ def decode_multi_dag_cbor_in_violation_of_the_spec(data: bytes, atjson_mode=Fals
 	"Encode and decode must operate on a single top-level CBOR object.
 	Back-to-back concatenated objects are not allowed or supported, as suggested
 	by section 5.1 of RFC 8949 for streaming applications."
+
+ 	@DavidBuchanan314 got mad.
 	"""
 	view = memoryview(data)
 	offset = 0
