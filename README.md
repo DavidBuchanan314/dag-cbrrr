@@ -51,3 +51,20 @@ def decode_multi_dag_cbor_in_violation_of_the_spec(data: bytes, atjson_mode=Fals
 def encode_dag_cbor(obj: DagCborTypes, atjson_mode=False, cid_type=CID) -> bytes:
 	...
 ```
+
+### Using `multiformats.CID`
+
+cbrrr brings its own performance-oriented CID class, but it's relatively bare-bones (supporting only base32, for now). If you want more features and broader compatibility, you can use the CID class from [hashberg-io/multiformats](https://github.com/hashberg-io/multiformats) like so:
+
+```py
+import cbrrr
+import multiformats
+
+encoded = cbrrr.encode_dag_cbor(
+	multiformats.CID.decode("bafkreibm6jg3ux5qumhcn2b3flc3tyu6dmlb4xa7u5bf44yegnrjhc4yeq"),
+	cid_type=multiformats.CID
+)
+
+decoded = cbrrr.decode_dag_cbor(encoded, cid_ctor=multiformats.CID.decode)
+print(decoded)  # zb2rhZfjRh2FHHB2RkHVEvL2vJnCTcu7kwRqgVsf9gpkLgteo
+```
