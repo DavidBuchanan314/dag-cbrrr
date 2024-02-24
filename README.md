@@ -1,5 +1,5 @@
 # dag-cbrrr
-Convert between DAG-CBOR and Python objects and hundreds of megabytes per second. Take a look at the [benchmarks](https://github.com/DavidBuchanan314/dag-cbor-benchmark)
+Convert between DAG-CBOR and Python objects at hundreds of megabytes per second. Take a look at the [benchmarks](https://github.com/DavidBuchanan314/dag-cbor-benchmark)
 
 Other than speed, a distinguishing feature is that it operates *non-recursively*. This means you can parse arbitrarily deeply nested objects without running out of call stack (although of course you might still run out of heap)
 
