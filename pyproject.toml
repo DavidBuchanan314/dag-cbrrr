@@ -21,6 +21,11 @@ classifiers = [
 dependencies = [
 ]
 
+[project.optional-dependencies]
+fixtures = [
+	"base58",
+]
+
 [project.urls]
 Homepage = "https://github.com/DavidBuchanan314/dag-cbrrr"
 Issues = "https://github.com/DavidBuchanan314/dag-cbrrr"
