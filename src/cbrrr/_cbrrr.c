@@ -261,7 +261,7 @@ cbrrr_parse_raw_string(const uint8_t *buf, size_t len, DCMajorType type, const u
 		return -1;
 	}
 	*str_len &= 0x1f;
-	res = cbrrr_parse_minimal_varint(&buf[idx], len-idx, str_len);
+	res = cbrrr_parse_minimal_varint(&buf[idx], len-idx, (uint64_t*)str_len);
 	if (res == (size_t)-1) {
 		// python error has been set by cbrrr_parse_minimal_varint
 		return -1;
