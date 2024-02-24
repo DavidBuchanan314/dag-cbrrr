@@ -14,8 +14,8 @@ static PyObject *PY_UINT64_MAX;
 static PyObject *PY_UINT64_MAX_INVERTED;
 static PyObject *PY_STRING_ENCODE;
 static PyObject *PY_STRING_DECODE;
-static PyObject *PY_STRING_$LINK;
-static PyObject *PY_STRING_$BYTES;
+static PyObject *PY_STRING_LINK;
+static PyObject *PY_STRING_BYTES;
 
 typedef enum {
 	DCMT_UNSIGNED_INT = 0,
@@ -377,7 +377,7 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 				Py_DECREF(tmp);
 				return -1;
 			}
-			if (PyDict_SetItem(token->value, PY_STRING_$BYTES, tmp) != 0) {
+			if (PyDict_SetItem(token->value, PY_STRING_BYTES, tmp) != 0) {
 				Py_DECREF(tmp);
 				return -1;
 			}
@@ -450,7 +450,7 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 				Py_DECREF(tmp);
 				return -1;
 			}
-			if (PyDict_SetItem(token->value, PY_STRING_$LINK, tmp) != 0) {
+			if (PyDict_SetItem(token->value, PY_STRING_LINK, tmp) != 0) {
 				Py_DECREF(tmp);
 				return -1;
 			}
@@ -1411,24 +1411,24 @@ PyInit__cbrrr(void)
 	PY_UINT64_MAX_INVERTED = PyNumber_Invert(PY_UINT64_MAX);
 	PY_STRING_ENCODE = PyUnicode_InternFromString("encode");
 	PY_STRING_DECODE = PyUnicode_InternFromString("decode");
-	PY_STRING_$LINK = PyUnicode_InternFromString("$link");
-	PY_STRING_$BYTES = PyUnicode_InternFromString("$bytes");
+	PY_STRING_LINK = PyUnicode_InternFromString("$link");
+	PY_STRING_BYTES = PyUnicode_InternFromString("$bytes");
 	if (
 		   PY_ZERO == NULL
 		|| PY_UINT64_MAX == NULL
 		|| PY_UINT64_MAX_INVERTED == NULL
 		|| PY_STRING_ENCODE == NULL
 		|| PY_STRING_DECODE == NULL
-		|| PY_STRING_$LINK == NULL
-		|| PY_STRING_$BYTES == NULL
+		|| PY_STRING_LINK == NULL
+		|| PY_STRING_BYTES == NULL
 	) {
 		Py_XDECREF(PY_ZERO);
 		Py_XDECREF(PY_UINT64_MAX);
 		Py_XDECREF(PY_UINT64_MAX_INVERTED);
 		Py_XDECREF(PY_STRING_ENCODE);
 		Py_XDECREF(PY_STRING_DECODE);
-		Py_XDECREF(PY_STRING_$LINK);
-		Py_XDECREF(PY_STRING_$BYTES);
+		Py_XDECREF(PY_STRING_LINK);
+		Py_XDECREF(PY_STRING_BYTES);
 		return NULL;
 	}
 
