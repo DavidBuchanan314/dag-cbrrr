@@ -7,6 +7,12 @@ Other than speed, a distinguishing feature is that it operates *non-recursively*
 
 ### Installation
 
+From pypi:
+```
+python3 -m pip install cbrrr
+```
+
+From git:
 ```
 git clone https://github.com/DavidBuchanan314/dag-cbrrr
 cd dag-cbrrr
