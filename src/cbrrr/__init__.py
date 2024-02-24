@@ -1,16 +1,17 @@
+from typing import Iterator
 import base64
 import hashlib
 import _cbrrr
 
-# these are all we need for atproto
-CIDV1_DAG_CBOR_SHA256_32_PFX = b"\x01\x71\x12\x20"
-CIDV1_RAW_SHA256_32_PFX      = b"\x01\x55\x12\x20"
 
 class CID:
 	"""
 	This class is very minimal, intended to support atproto use cases and not
 	much else.
 	"""
+
+	CIDV1_DAG_CBOR_SHA256_32_PFX = b"\x01\x71\x12\x20"
+	CIDV1_RAW_SHA256_32_PFX      = b"\x01\x55\x12\x20"
 
 	__slots__ = ("cid_bytes",)
 
@@ -28,11 +29,11 @@ class CID:
 	
 	@classmethod
 	def cidv1_dag_cbor_sha256_32_from(cls, data: bytes) -> "CID":
-		return cls(CIDV1_DAG_CBOR_SHA256_32_PFX + hashlib.sha256(data).digest())
+		return cls(cls.CIDV1_DAG_CBOR_SHA256_32_PFX + hashlib.sha256(data).digest())
 
 	@classmethod
 	def cidv1_raw_sha256_32_from(cls, data: bytes) -> "CID":
-		return cls(CIDV1_RAW_SHA256_32_PFX + hashlib.sha256(data).digest())
+		return cls(cls.CIDV1_RAW_SHA256_32_PFX + hashlib.sha256(data).digest())
 	
 	@classmethod
 	def decode(cls, data: bytes | str) -> "CID":
@@ -63,10 +64,10 @@ class CID:
 		raise ValueError("unsupported base encoding")
 
 	def is_cidv1_dag_cbor_sha256_32(self) -> bool:
-		return self.cid_bytes.startswith(CIDV1_DAG_CBOR_SHA256_32_PFX) and len(self.cid_bytes) == 36
+		return self.cid_bytes.startswith(self.CIDV1_DAG_CBOR_SHA256_32_PFX) and len(self.cid_bytes) == 36
 
 	def is_cidv1_raw_sha256_32(self) -> bool:
-		return self.cid_bytes.startswith(CIDV1_RAW_SHA256_32_PFX) and len(self.cid_bytes) == 36
+		return self.cid_bytes.startswith(self.CIDV1_RAW_SHA256_32_PFX) and len(self.cid_bytes) == 36
 
 	def __bytes__(self):
 		return self.cid_bytes
@@ -84,7 +85,7 @@ class CID:
 
 DagCborTypes = str | bytes | int | bool | float | CID | list | dict | None
 
-def decode_dag_cbor(data: bytes, atjson_mode=False) -> DagCborTypes:
+def decode_dag_cbor(data: bytes, atjson_mode=False, cid_ctor=CID) -> DagCborTypes:
 	"""
 	Decode DAG-CBOR bytes into python objects.
 
@@ -93,12 +94,28 @@ def decode_dag_cbor(data: bytes, atjson_mode=False) -> DagCborTypes:
 	be represented as bytes objects, or CID classes, respectively.
 	"""
 
-	parsed, length = _cbrrr.decode_dag_cbor(data, CID, atjson_mode)
+	parsed, length = _cbrrr.decode_dag_cbor(data, cid_ctor, atjson_mode)
 	if length != len(data):
 		raise ValueError("did not parse to end of buffer")
 	return parsed
 
-def encode_dag_cbor(obj: DagCborTypes, atjson_mode=False) -> bytes:
+def decode_multi_dag_cbor_in_violation_of_the_spec(data: bytes, atjson_mode=False, cid_ctor=CID) -> Iterator[DagCborTypes]:
+	"""
+	https://ipld.io/specs/codecs/dag-cbor/spec/#strictness
+
+	"Encode and decode must operate on a single top-level CBOR object.
+	Back-to-back concatenated objects are not allowed or supported, as suggested
+	by section 5.1 of RFC 8949 for streaming applications."
+	"""
+	view = memoryview(data)
+	offset = 0
+	while offset < len(data):
+		parsed, length = _cbrrr.decode_dag_cbor(view[offset:], cid_ctor, atjson_mode)
+		yield parsed
+		offset += length
+	assert(offset == len(data)) # should never fail!
+
+def encode_dag_cbor(obj: DagCborTypes, atjson_mode=False, cid_type=CID) -> bytes:
 	"""
 	Encode python objects to DAG-CBOR bytes.
 
@@ -106,4 +123,12 @@ def encode_dag_cbor(obj: DagCborTypes, atjson_mode=False) -> bytes:
 	encoded as CBOR bytes, and dicts in the format {"$link": "b32..."} will be
 	encoded as CIDs (CBOR tag value 42)
 	"""
-	return _cbrrr.encode_dag_cbor(obj, CID, atjson_mode)
+	return _cbrrr.encode_dag_cbor(obj, cid_type, atjson_mode)
+
+__all__ = [
+	"CID",
+	"DagCborTypes",
+	"decode_dag_cbor",
+	"decode_multi_dag_cbor_in_violation_of_the_spec",
+	"encode_dag_cbor",
+]

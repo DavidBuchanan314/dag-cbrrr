@@ -1,7 +1,7 @@
 import io
 import sys
 import time
-from cbrrr import decode_dag_cbor, encode_dag_cbor
+from cbrrr import decode_dag_cbor, encode_dag_cbor, CID
 
 ATJSON_MODE = True
 
@@ -37,8 +37,8 @@ def parse_car(stream, length):
 
 	while stream.tell() != length:
 		block_len = parse_varint(stream)
-		cid_raw = stream.read(36) # XXX: this needs to be parsed properly, length might not be 36
-		assert(cid_raw.startswith(b"\x01q\x12 ")) # CIDv1, dag-cbor, sha256
+		cid = CID(stream.read(36)) # XXX: this needs to be parsed properly, length might not be 36
+		assert(cid.is_cidv1_dag_cbor_sha256_32()) # this is enough to validate atproto-flavoured CIDs
 
 		block_data = stream.read(block_len-36)
 		assert(len(block_data) == block_len-36)
@@ -53,7 +53,7 @@ def parse_car(stream, length):
 		enctime += time.time()-start
 		assert(block_data == roundtrip)
 		#print(block)
-		nodes[cid_raw] = block
+		nodes[cid] = block
 	
 	return root, nodes
 
@@ -76,3 +76,5 @@ if __name__ == "__main__":
 	#duration = time.time()-start
 	#car_speed = (len(car)/(1024*1024))/duration
 	#print(f"libipld.decode_car {len(car)} bytes at {car_speed:.2f}MB/s")
+
+	#print(nodes[root])
