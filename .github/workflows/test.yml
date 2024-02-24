@@ -13,7 +13,7 @@ jobs:
           submodules: recursive
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.9'
+          python-version: '3.8'
       - name: Install cbrrr python module
         run: |
           python3 -m pip install -v .[fixtures]
