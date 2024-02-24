@@ -56,6 +56,9 @@ static const uint8_t B64_CHARSET[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnop
 static PyObject*
 cbrrr_bytes_to_b64_string_nopad(const uint8_t *data, size_t data_len)
 {
+	/* XXX: data_len*4 could integer overflow. Unless you have 2^63 bytes of RAM,
+	   it should be impossible to reach that condition. To make this safe on 32-bit
+	   platforms we'll need to enforce a length limit */
 	PyObject *res = PyUnicode_New((data_len*4+2)/3, 127); /* ASCII-only (b64 charset) */
 	if (res == NULL) {
 		return NULL;
@@ -103,6 +106,7 @@ static const uint8_t B32_CHARSET[] = "abcdefghijklmnopqrstuvwxyz234567";
 static PyObject*
 cbrrr_bytes_to_b32_multibase(const uint8_t *data, size_t data_len)
 {
+	/* XXX: see comment in b64 fn above, re integer overflow */
 	PyObject *res = PyUnicode_New(1 + (data_len*8+4)/5, 127); /* ASCII-only (b32 charset) */
 	if (res == NULL) {
 		return NULL;
@@ -753,10 +757,11 @@ cbrrr_write_cbor_bytes_from_b64(CbrrrBuf *buf, const uint8_t *b64_str, size_t st
 		return -1;
 	}
 
-	/* nb: this length integer could overflow, but earlier checks should enforce
-	   that str_len fits in the buffer, so unless you have on the order of 2^64
-	   bytes of RAM, it's all good */
-	size_t decoded_length = (str_len*3)/4;
+	/* nb: this length integer could overflow, but it comes from a python string,
+	   so it should be < PY_SSIZE_T_MAX. Unless you have close to 2^63 bytes of
+	   RAM, you're safe. I think the uint64 cast should make it safe
+	   on 32-bit platforms too. (decoded_length is always < str_len) */
+	size_t decoded_length = ((uint64_t)str_len*3)/4;
 	if (cbrrr_write_cbor_varint(buf, DCMT_BYTE_STRING, decoded_length) < 0) {
 		return -1;
 	}
@@ -850,10 +855,8 @@ cbrrr_write_cbor_bytes_from_multibase_b32_nopad(CbrrrBuf *buf, const uint8_t *b3
 	b32_str++;
 	str_len--;
 
-	/* nb: this length integer could overflow, but earlier checks should enforce
-	   that str_len fits in the buffer, so unless you have on the order of 2^64
-	   bytes of RAM, it's all good */
-	size_t decoded_length = (str_len*5)/8;
+	/* nb: see comment in b64 fn above re: integer overflow */
+	size_t decoded_length = ((uint64_t)str_len*5)/8;
 	if (cbrrr_write_cbor_varint(buf, DCMT_BYTE_STRING, decoded_length + 1) < 0) {
 		return -1;
 	}
