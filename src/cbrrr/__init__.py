@@ -1,4 +1,4 @@
-from typing import Iterator
+from typing import Iterator, Union
 import base64
 import hashlib
 import _cbrrr
@@ -36,7 +36,7 @@ class CID:
 		return cls(cls.CIDV1_RAW_SHA256_32_PFX + hashlib.sha256(data).digest())
 	
 	@classmethod
-	def decode(cls, data: bytes | str) -> "CID":
+	def decode(cls, data: Union[bytes, str]) -> "CID":
 		"""
 		Currently supported codecs: identity/raw, base32
 		"""
@@ -83,7 +83,7 @@ class CID:
 			return False
 		return self.cid_bytes == __value.cid_bytes
 
-DagCborTypes = str | bytes | int | bool | float | CID | list | dict | None
+DagCborTypes = Union[str, bytes, int, bool, float, CID, list, dict, None] # nb: | syntax not supported in <=py3.9
 
 def decode_dag_cbor(data: bytes, atjson_mode=False, cid_ctor=CID) -> DagCborTypes:
 	"""

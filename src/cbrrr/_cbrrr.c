@@ -498,7 +498,8 @@ cbrrr_parse_object(const uint8_t *buf, size_t len, PyObject **value, PyObject *c
 		if (parse_stack[sp].count == 0) { /* If we're done on this level of the stack */
 			if (sp == 0) { /* no more stack left, parsing is complete! */
 				/* pull the parsed result out of the dummy list of length 1 we created at the start */
-				*value = Py_NewRef(PyList_GET_ITEM(parse_stack[0].value, 0));
+				*value = PyList_GET_ITEM(parse_stack[0].value, 0);
+				Py_XINCREF(*value); // nb: this would be cleaner with Py_XNewRef, available in py3.10+. You could probably drop the X too, I can't think why PyList_GET_ITEM would fail.
 				break;
 			}
 			sp -= 1; /* "return" to the previous stack frame */
