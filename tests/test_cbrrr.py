@@ -25,7 +25,7 @@ def cbor_head(mtype, info):
 def roundrip(obj, atjson_mode=False):
 	return cbrrr.decode_dag_cbor( cbrrr.encode_dag_cbor(obj, atjson_mode) )
 
-class EncodeTestCase(unittest.TestCase):
+class TestCbrrr(unittest.TestCase):
 	def test_simple_roundtrips(self):
 		self.assertEqual(roundrip(123), 123)
 		self.assertEqual(roundrip(-123), -123)
@@ -84,6 +84,53 @@ class EncodeTestCase(unittest.TestCase):
 				cbrrr.encode_dag_cbor([1, 2, 3])
 			)),
 			[b'hello', {"world": 0}, [1, 2, 3]]
+		)
+	
+	def test_duplicate_map_keys(self):
+		# {"abc": 1, "abc": 2}
+		dup = cbor_head(MajorType.MAP, 2)
+		dup += cbor_head(MajorType.TEXT_STRING, 3) + b"abc"
+		dup += cbor_head(MajorType.UNSIGNED_INT, 1)
+		dup += cbor_head(MajorType.TEXT_STRING, 3) + b"abc"
+		dup += cbor_head(MajorType.UNSIGNED_INT, 2)
+
+		with self.assertRaises(ValueError) as cm:
+			cbrrr.decode_dag_cbor(dup)
+	
+		self.assertEqual(
+			str(cm.exception),
+			"non-canonical map key ordering ('abc' <= 'abc')"
+		)
+	
+	def test_unsorted_map_keys(self):
+		# {"def": 1, "abc": 2}
+		obj = cbor_head(MajorType.MAP, 2)
+		obj += cbor_head(MajorType.TEXT_STRING, 3) + b"def"
+		obj += cbor_head(MajorType.UNSIGNED_INT, 1)
+		obj += cbor_head(MajorType.TEXT_STRING, 3) + b"abc"
+		obj += cbor_head(MajorType.UNSIGNED_INT, 2)
+
+		with self.assertRaises(ValueError) as cm:
+			cbrrr.decode_dag_cbor(obj)
+	
+		self.assertEqual(
+			str(cm.exception),
+			"non-canonical map key ordering ('abc' <= 'def')"
+		)
+
+		# {"aaa": 1, "x": 2}  (shorter string should sort first)
+		obj = cbor_head(MajorType.MAP, 2)
+		obj += cbor_head(MajorType.TEXT_STRING, 3) + b"aaa"
+		obj += cbor_head(MajorType.UNSIGNED_INT, 1)
+		obj += cbor_head(MajorType.TEXT_STRING, 1) + b"x"
+		obj += cbor_head(MajorType.UNSIGNED_INT, 2)
+
+		with self.assertRaises(ValueError) as cm:
+			cbrrr.decode_dag_cbor(obj)
+	
+		self.assertEqual(
+			str(cm.exception),
+			"non-canonical map key ordering (len('x') < len('aaa'))"
 		)
 
 if __name__ == '__main__':
