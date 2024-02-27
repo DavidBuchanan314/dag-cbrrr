@@ -52,6 +52,8 @@ def encode_dag_cbor(obj: DagCborTypes, atjson_mode=False, cid_type=CID) -> bytes
 	...
 ```
 
+"atjson_mode" refers to the representation used in atproto HTTP APIs, documented here [here](https://atproto.com/specs/data-model#json-representation). It is *not* a round-trip-safe representation.
+
 ### Using `multiformats.CID`
 
 cbrrr brings its own performance-oriented CID class, but it's relatively bare-bones (supporting only base32, for now). If you want more features and broader compatibility, you can use the CID class from [hashberg-io/multiformats](https://github.com/hashberg-io/multiformats) like so:
