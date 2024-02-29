@@ -9,7 +9,7 @@ setup(
 	package_dir={"cbrrr": "src/cbrrr"},
 	ext_modules=[
 		Extension(
-			"_cbrrr",
+			"cbrrr._cbrrr",
 			sources=["src/cbrrr/_cbrrr.c"],
 			extra_compile_args=["-O3", "-Wall", "-Wextra", "-Wpedantic", "-std=c99"]
 		),

@@ -1,7 +1,7 @@
 from typing import Type, Iterator, Union, Callable, Any#, TypeVar
 import base64
 import hashlib
-import _cbrrr
+from . import _cbrrr
 
 #CbrrrDecodeErrorType = TypeVar("CbrrrDecodeErrorType", bound=ValueError)
 CbrrrDecodeError = _cbrrr.CbrrrDecodeError
