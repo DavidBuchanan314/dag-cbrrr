@@ -30,11 +30,17 @@ class CID:
 	
 	@classmethod
 	def cidv1_dag_cbor_sha256_32_from(cls, data: bytes) -> "CID":
-		return cls(cls.CIDV1_DAG_CBOR_SHA256_32_PFX + hashlib.sha256(data).digest())
+		return cls(
+			cls.CIDV1_DAG_CBOR_SHA256_32_PFX
+			+ hashlib.sha256(data).digest()
+		)
 
 	@classmethod
 	def cidv1_raw_sha256_32_from(cls, data: bytes) -> "CID":
-		return cls(cls.CIDV1_RAW_SHA256_32_PFX + hashlib.sha256(data).digest())
+		return cls(
+			cls.CIDV1_RAW_SHA256_32_PFX
+			+ hashlib.sha256(data).digest()
+		)
 	
 	@classmethod
 	def decode(cls, data: Union[bytes, str]) -> "CID":
@@ -49,26 +55,34 @@ class CID:
 			return cls(data[1:])
 
 		if data.startswith(b"b"): # base32 multibase codec
-			data = data[1:]
+			data = data[1:] # strip prefix
 			if data.endswith(b"="):
 				raise ValueError("unexpected base32 padding")
-			data += b"=" * ((-len(data)) % 8) # add back correct amount of padding (python is fussy)
-			decoded = base64.b32decode(data, casefold=True) # TODO: do we care about map01?
+			# add back correct amount of padding (python is fussy)
+			data += b"=" * ((-len(data)) % 8)
+			decoded = base64.b32decode(data, casefold=True)
 			return cls(decoded)
 
 		raise ValueError("I don't know how to decode this CID")
 
 	def encode(self, base="base32") -> str:
 		if base == "base32":
-			return "b" + base64.b32encode(self.cid_bytes).decode().lower().rstrip("=")
+			return "b" + base64.b32encode(self.cid_bytes) \
+				.decode().lower().rstrip("=")
 		# this function might support other encodings in the future
 		raise ValueError("unsupported base encoding")
 
 	def is_cidv1_dag_cbor_sha256_32(self) -> bool:
-		return self.cid_bytes.startswith(self.CIDV1_DAG_CBOR_SHA256_32_PFX) and len(self.cid_bytes) == 36
+		return (
+			self.cid_bytes.startswith(self.CIDV1_DAG_CBOR_SHA256_32_PFX)
+			and len(self.cid_bytes) == 36
+		)
 
 	def is_cidv1_raw_sha256_32(self) -> bool:
-		return self.cid_bytes.startswith(self.CIDV1_RAW_SHA256_32_PFX) and len(self.cid_bytes) == 36
+		return (
+			self.cid_bytes.startswith(self.CIDV1_RAW_SHA256_32_PFX)
+			and len(self.cid_bytes) == 36
+		)
 
 	def __bytes__(self):
 		return self.cid_bytes
@@ -84,9 +98,14 @@ class CID:
 			return False
 		return self.cid_bytes == __value.cid_bytes
 
-DagCborTypes = Union[str, bytes, int, bool, float, CID, list, dict, None] # nb: | syntax not supported in <=py3.9
+# nb: | syntax not supported in <=py3.9
+DagCborTypes = Union[str, bytes, int, bool, float, CID, list, dict, None]
 
-def decode_dag_cbor(data: bytes, atjson_mode: bool=False, cid_ctor: Callable[[bytes], Any]=CID) -> DagCborTypes:
+def decode_dag_cbor(
+	data: bytes,
+	atjson_mode: bool=False,
+	cid_ctor: Callable[[bytes], Any]=CID
+) -> DagCborTypes:
 	"""
 	Decode DAG-CBOR bytes into python objects.
 
@@ -100,7 +119,11 @@ def decode_dag_cbor(data: bytes, atjson_mode: bool=False, cid_ctor: Callable[[by
 		raise ValueError("did not parse to end of buffer")
 	return parsed
 
-def decode_multi_dag_cbor_in_violation_of_the_spec(data: bytes, atjson_mode: bool=False, cid_ctor: Callable[[bytes], Any]=CID) -> Iterator[DagCborTypes]:
+def decode_multi_dag_cbor_in_violation_of_the_spec(
+	data: bytes,
+	atjson_mode: bool=False,
+	cid_ctor: Callable[[bytes], Any]=CID
+) -> Iterator[DagCborTypes]:
 	"""
 	https://ipld.io/specs/codecs/dag-cbor/spec/#strictness
 
@@ -116,7 +139,11 @@ def decode_multi_dag_cbor_in_violation_of_the_spec(data: bytes, atjson_mode: boo
 		offset += length
 	assert(offset == len(data)) # should never fail!
 
-def encode_dag_cbor(obj: DagCborTypes, atjson_mode: bool=False, cid_type: Type=CID) -> bytes:
+def encode_dag_cbor(
+	obj: DagCborTypes,
+	atjson_mode: bool=False,
+	cid_type: Type=CID
+) -> bytes:
 	"""
 	Encode python objects to DAG-CBOR bytes.
 
