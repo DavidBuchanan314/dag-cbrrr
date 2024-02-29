@@ -1,9 +1,8 @@
-from typing import Type, Iterator, Union, Callable, Any#, TypeVar
+from typing import Type, Iterator, Union, Callable, Any
 import base64
 import hashlib
 from . import _cbrrr
 
-#CbrrrDecodeErrorType = TypeVar("CbrrrDecodeErrorType", bound=ValueError)
 CbrrrDecodeError = _cbrrr.CbrrrDecodeError
 
 class CID:
