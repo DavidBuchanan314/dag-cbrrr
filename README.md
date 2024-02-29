@@ -3,7 +3,7 @@ Convert between DAG-CBOR and Python objects at hundreds of megabytes per second.
 
 Other than speed, a distinguishing feature is that it operates *non-recursively*. This means you can decode or encode arbitrarily deeply nested objects without running out of call stack (although of course you might still run out of heap)
 
-### Installation
+## Installation
 
 From pypi:
 ```
@@ -17,7 +17,7 @@ cd dag-cbrrr
 python3 -m pip install -v .
 ```
 
-### Quickstart
+## Quickstart
 
 Here's the basics:
 ```py
@@ -42,6 +42,8 @@ class CID:
 	def encode(self, base="base32") -> str:
 		...
 	...
+
+DagCborTypes = Union[str, bytes, int, bool, float, CID, list, dict, None]
 
 def decode_dag_cbor(
 	data: bytes,
