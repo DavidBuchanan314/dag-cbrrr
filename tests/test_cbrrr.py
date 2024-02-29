@@ -58,9 +58,9 @@ class TestCbrrr(unittest.TestCase):
 
 	def test_decode_invalid_small_integers(self):
 		for i in range(24, 28):
-			self.assertRaises(EOFError, cbrrr.decode_dag_cbor, cbor_head(MajorType.UNSIGNED_INT, i))
+			self.assertRaises(cbrrr.CbrrrDecodeError, cbrrr.decode_dag_cbor, cbor_head(MajorType.UNSIGNED_INT, i))
 		for i in range(28, 32):
-			self.assertRaises(ValueError, cbrrr.decode_dag_cbor, cbor_head(MajorType.UNSIGNED_INT, i))
+			self.assertRaises(cbrrr.CbrrrDecodeError, cbrrr.decode_dag_cbor, cbor_head(MajorType.UNSIGNED_INT, i))
 	
 	def test_atjson_decode(self):
 		self.assertEqual(cbrrr.decode_dag_cbor(cbrrr.encode_dag_cbor(cbrrr.CID(b"blah")), atjson_mode=True), {'$link': 'bmjwgc2a'})

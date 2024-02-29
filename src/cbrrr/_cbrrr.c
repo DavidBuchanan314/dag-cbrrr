@@ -16,6 +16,7 @@ static PyObject *PY_STRING_ENCODE;
 static PyObject *PY_STRING_DECODE;
 static PyObject *PY_STRING_LINK;
 static PyObject *PY_STRING_BYTES;
+static PyObject *PY_CBRRR_DECODE_ERROR;
 
 typedef enum {
 	DCMT_UNSIGNED_INT = 0,
@@ -190,41 +191,41 @@ cbrrr_parse_minimal_varint(const uint8_t *buf, size_t len, uint64_t *value)
 	{
 	case 24:
 		if (len < 1) {
-			PyErr_SetString(PyExc_EOFError, "not enough bytes left in buffer");
+			PyErr_SetString(PY_CBRRR_DECODE_ERROR, "not enough bytes left in buffer");
 			return -1;
 		}
 		*value = buf[0];
 		if (*value < 24) {
-			PyErr_SetString(PyExc_ValueError, "integer not minimally encoded");
+			PyErr_SetString(PY_CBRRR_DECODE_ERROR, "integer not minimally encoded");
 			return -1;
 		}
 		return 1;
 	case 25:
 		if (len < 2) {
-			PyErr_SetString(PyExc_EOFError, "not enough bytes left in buffer");
+			PyErr_SetString(PY_CBRRR_DECODE_ERROR, "not enough bytes left in buffer");
 			return -1;
 		}
 		*value = buf[0] << 8 | buf[1] << 0;
 		if (*value < 0x100) {
-			PyErr_SetString(PyExc_ValueError, "integer not minimally encoded");
+			PyErr_SetString(PY_CBRRR_DECODE_ERROR, "integer not minimally encoded");
 			return -1;
 		}
 		return 2;
 	case 26:
 		if (len < 4) {
-			PyErr_SetString(PyExc_EOFError, "not enough bytes left in buffer");
+			PyErr_SetString(PY_CBRRR_DECODE_ERROR, "not enough bytes left in buffer");
 			return -1;
 		}
 		*value = (uint64_t)buf[0] << 24 | (uint64_t)buf[1] << 16
 		       | (uint64_t)buf[2] << 8  | (uint64_t)buf[3] << 0;
 		if (*value < 0x10000) {
-			PyErr_SetString(PyExc_ValueError, "integer not minimally encoded");
+			PyErr_SetString(PY_CBRRR_DECODE_ERROR, "integer not minimally encoded");
 			return -1;
 		}
 		return 4;
 	case 27:
 		if (len < 8) {
-			PyErr_SetString(PyExc_EOFError, "not enough bytes left in buffer");
+			PyErr_SetString(PY_CBRRR_DECODE_ERROR, "not enough bytes left in buffer");
 			return -1;
 		}
 		*value = (uint64_t)buf[0] << 56 | (uint64_t)buf[1] << 48
@@ -232,13 +233,13 @@ cbrrr_parse_minimal_varint(const uint8_t *buf, size_t len, uint64_t *value)
 		       | (uint64_t)buf[4] << 24 | (uint64_t)buf[5] << 16
 		       | (uint64_t)buf[6] << 8  | (uint64_t)buf[7] << 0;
 		if (*value < 0x100000000L) {
-			PyErr_SetString(PyExc_ValueError, "integer not minimally encoded");
+			PyErr_SetString(PY_CBRRR_DECODE_ERROR, "integer not minimally encoded");
 			return -1;
 		}
 		return 8;
 	default:
 		if (*value > 27) {
-			PyErr_Format(PyExc_ValueError, "invalid extra info (%lu)", *value);
+			PyErr_Format(PY_CBRRR_DECODE_ERROR, "invalid extra info (%lu)", *value);
 			return -1;
 		}
 		return 0;
@@ -252,12 +253,12 @@ cbrrr_parse_raw_string(const uint8_t *buf, size_t len, DCMajorType type, const u
 	size_t idx = 0, res;
 
 	if (len < idx + 1) {
-		PyErr_SetString(PyExc_EOFError, "not enough bytes left in buffer");
+		PyErr_SetString(PY_CBRRR_DECODE_ERROR, "not enough bytes left in buffer");
 		return -1;
 	}
 	*str_len = buf[idx++];
 	if ((*str_len >> 5) != type) {
-		PyErr_Format(PyExc_ValueError, "unexpected type (%lu), expected %lu", (*str_len >> 5), type);
+		PyErr_Format(PY_CBRRR_DECODE_ERROR, "unexpected type (%lu), expected %lu", (*str_len >> 5), type);
 		return -1;
 	}
 	*str_len &= 0x1f;
@@ -268,7 +269,7 @@ cbrrr_parse_raw_string(const uint8_t *buf, size_t len, DCMajorType type, const u
 	}
 	idx += res;
 	if (*str_len > len - idx) {
-		PyErr_SetString(PyExc_EOFError, "not enough bytes left in buffer");
+		PyErr_SetString(PY_CBRRR_DECODE_ERROR, "not enough bytes left in buffer");
 		return -1;
 	}
 	*str = &buf[idx];
@@ -284,7 +285,7 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 	PyObject *tmp;
 
 	if (len < idx + 1) {
-		PyErr_SetString(PyExc_EOFError, "not enough bytes left in buffer");
+		PyErr_SetString(PY_CBRRR_DECODE_ERROR, "not enough bytes left in buffer");
 		return -1;
 	}
 
@@ -309,7 +310,7 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 			return idx;
 		case 27:
 			if (len < idx + sizeof(double)) {
-				PyErr_SetString(PyExc_EOFError, "not enough bytes left in buffer");
+				PyErr_SetString(PY_CBRRR_DECODE_ERROR, "not enough bytes left in buffer");
 				return -1;
 			}
 			uint64_t intval = \
@@ -319,17 +320,17 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 				| (uint64_t)buf[idx+6] << 8  | (uint64_t)buf[idx+7] << 0;
 			double doubleval = ((union {uint64_t num; double dub;}){.num=intval}).dub; // TODO: rewrite lol
 			if (isnan(doubleval)) {
-				PyErr_SetString(PyExc_ValueError, "NaNs are not allowed");
+				PyErr_SetString(PY_CBRRR_DECODE_ERROR, "NaNs are not allowed");
 				return -1;
 			}
 			if (isinf(doubleval)) {
-				PyErr_SetString(PyExc_ValueError, "+/-Infinities are not allowed");
+				PyErr_SetString(PY_CBRRR_DECODE_ERROR, "+/-Infinities are not allowed");
 				return -1;
 			}
 			token->value = PyFloat_FromDouble(doubleval);
 			return idx + sizeof(double);
 		default:
-			PyErr_Format(PyExc_ValueError, "invalid extra info for float mtype (%lu)", info);
+			PyErr_Format(PY_CBRRR_DECODE_ERROR, "invalid extra info for float mtype (%lu)", info);
 			return -1;
 		}
 	}
@@ -364,7 +365,7 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 		return idx;
 	case DCMT_BYTE_STRING:
 		if (info > len - idx) {
-			PyErr_SetString(PyExc_EOFError, "not enough bytes left in buffer");
+			PyErr_SetString(PY_CBRRR_DECODE_ERROR, "not enough bytes left in buffer");
 			return -1;
 		}
 		if (atjson_mode) { /* wrap in {"$bytes", "b64..."} */
@@ -391,7 +392,7 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 		return idx + info;
 	case DCMT_TEXT_STRING:
 		if (info > len - idx) {
-			PyErr_SetString(PyExc_EOFError, "not enough bytes left in buffer");
+			PyErr_SetString(PY_CBRRR_DECODE_ERROR, "not enough bytes left in buffer");
 			return -1;
 		}
 		token->value = PyUnicode_FromStringAndSize((const char *)&buf[idx], info);
@@ -401,7 +402,7 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 		return idx + info;
 	case DCMT_ARRAY:
 		if (info > len - idx) {
-			PyErr_SetString(PyExc_EOFError, "not enough bytes left in buffer for an array that long");
+			PyErr_SetString(PY_CBRRR_DECODE_ERROR, "not enough bytes left in buffer for an array that long");
 			return -1;
 		}
 		token->value = PyList_New(info);
@@ -412,7 +413,7 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 		return idx;
 	case DCMT_MAP:
 		if (info > len - idx) {
-			PyErr_SetString(PyExc_EOFError, "not enough bytes left in buffer for a map that long");
+			PyErr_SetString(PY_CBRRR_DECODE_ERROR, "not enough bytes left in buffer for a map that long");
 			return -1;
 		}
 		token->value = PyDict_New();
@@ -425,7 +426,7 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 		return idx;
 	case DCMT_TAG:
 		if (info != 42) { // only tag type 42=CID is supported
-			PyErr_Format(PyExc_ValueError, "invalid tag value (%lu)", info);
+			PyErr_Format(PY_CBRRR_DECODE_ERROR, "invalid tag value (%lu)", info);
 			return -1;
 		}
 		// parse a byte string
@@ -437,7 +438,7 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 			return -1;
 		}
 		if (str_len == 0 || str[0] != 0) {
-			PyErr_SetString(PyExc_ValueError, "invalid CID");
+			PyErr_SetString(PY_CBRRR_DECODE_ERROR, "invalid CID (nonzero start byte)");
 			return -1;
 		}
 		if (atjson_mode) { /* wrap in {"$link", "b32..."} */
@@ -469,7 +470,7 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 
 		return idx + res;
 	default:
-		PyErr_Format(PyExc_Exception, "you reached unreachable code??? (type=%lu)", token->type);
+		PyErr_Format(PyExc_AssertionError, "you reached unreachable code??? (type=%lu)", token->type);
 		return -1; // unreachable?
 	}
 }
@@ -546,14 +547,14 @@ cbrrr_parse_object(const uint8_t *buf, size_t len, PyObject **value, PyObject *c
 				if (str_len < parse_stack[sp].prev_key_len) { // key order violation
 					// panik
 					PyObject *tmp = PyUnicode_FromStringAndSize((const char*)parse_stack[sp].prev_key, parse_stack[sp].prev_key_len);
-					PyErr_Format(PyExc_ValueError, "non-canonical map key ordering (len(%R) < len(%R))", key, tmp);
+					PyErr_Format(PY_CBRRR_DECODE_ERROR, "non-canonical map key ordering (len(%R) < len(%R))", key, tmp);
 					Py_DECREF(tmp);
 					idx = -1;
 					break;
 				} else if (str_len == parse_stack[sp].prev_key_len) { // ditto
 					if (memcmp(str, parse_stack[sp].prev_key, str_len) <= 0) {
 						PyObject *tmp = PyUnicode_FromStringAndSize((const char*)parse_stack[sp].prev_key, parse_stack[sp].prev_key_len);
-						PyErr_Format(PyExc_ValueError, "non-canonical map key ordering (%R <= %R)", key, tmp);
+						PyErr_Format(PY_CBRRR_DECODE_ERROR, "non-canonical map key ordering (%R <= %R)", key, tmp);
 						Py_DECREF(tmp);
 						idx = -1;
 						break;
@@ -1419,6 +1420,8 @@ PyInit__cbrrr(void)
 	PY_STRING_DECODE = PyUnicode_InternFromString("decode");
 	PY_STRING_LINK = PyUnicode_InternFromString("$link");
 	PY_STRING_BYTES = PyUnicode_InternFromString("$bytes");
+	PY_CBRRR_DECODE_ERROR = PyErr_NewException("cbrrr.CbrrrDecodeError", PyExc_ValueError, NULL);
+	int res = PyModule_AddObject(m, "CbrrrDecodeError", PY_CBRRR_DECODE_ERROR);
 	if (
 		   PY_ZERO == NULL
 		|| PY_UINT64_MAX == NULL
@@ -1427,6 +1430,8 @@ PyInit__cbrrr(void)
 		|| PY_STRING_DECODE == NULL
 		|| PY_STRING_LINK == NULL
 		|| PY_STRING_BYTES == NULL
+		|| PY_CBRRR_DECODE_ERROR == NULL
+		|| res < 0
 	) {
 		Py_XDECREF(PY_ZERO);
 		Py_XDECREF(PY_UINT64_MAX);
@@ -1435,6 +1440,7 @@ PyInit__cbrrr(void)
 		Py_XDECREF(PY_STRING_DECODE);
 		Py_XDECREF(PY_STRING_LINK);
 		Py_XDECREF(PY_STRING_BYTES);
+		Py_XDECREF(PY_CBRRR_DECODE_ERROR);
 		return NULL;
 	}
 
