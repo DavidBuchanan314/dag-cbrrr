@@ -1,7 +1,7 @@
 from typing import Type, Iterator, Union, Callable, Any
 import base64
 import hashlib
-from . import _cbrrr
+from . import _cbrrr  # type: ignore
 
 CbrrrDecodeError = _cbrrr.CbrrrDecodeError
 
