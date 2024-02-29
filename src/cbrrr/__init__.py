@@ -1,4 +1,4 @@
-from typing import Iterator, Union#, TypeVar
+from typing import Type, Iterator, Union, Callable, Any#, TypeVar
 import base64
 import hashlib
 import _cbrrr
@@ -87,7 +87,7 @@ class CID:
 
 DagCborTypes = Union[str, bytes, int, bool, float, CID, list, dict, None] # nb: | syntax not supported in <=py3.9
 
-def decode_dag_cbor(data: bytes, atjson_mode=False, cid_ctor=CID) -> DagCborTypes:
+def decode_dag_cbor(data: bytes, atjson_mode: bool=False, cid_ctor: Callable[[bytes], Any]=CID) -> DagCborTypes:
 	"""
 	Decode DAG-CBOR bytes into python objects.
 
@@ -101,7 +101,7 @@ def decode_dag_cbor(data: bytes, atjson_mode=False, cid_ctor=CID) -> DagCborType
 		raise ValueError("did not parse to end of buffer")
 	return parsed
 
-def decode_multi_dag_cbor_in_violation_of_the_spec(data: bytes, atjson_mode=False, cid_ctor=CID) -> Iterator[DagCborTypes]:
+def decode_multi_dag_cbor_in_violation_of_the_spec(data: bytes, atjson_mode: bool=False, cid_ctor: Callable[[bytes], Any]=CID) -> Iterator[DagCborTypes]:
 	"""
 	https://ipld.io/specs/codecs/dag-cbor/spec/#strictness
 
@@ -117,7 +117,7 @@ def decode_multi_dag_cbor_in_violation_of_the_spec(data: bytes, atjson_mode=Fals
 		offset += length
 	assert(offset == len(data)) # should never fail!
 
-def encode_dag_cbor(obj: DagCborTypes, atjson_mode=False, cid_type=CID) -> bytes:
+def encode_dag_cbor(obj: DagCborTypes, atjson_mode: bool=False, cid_type: Type=CID) -> bytes:
 	"""
 	Encode python objects to DAG-CBOR bytes.
 
@@ -128,6 +128,7 @@ def encode_dag_cbor(obj: DagCborTypes, atjson_mode=False, cid_type=CID) -> bytes
 	return _cbrrr.encode_dag_cbor(obj, cid_type, atjson_mode)
 
 __all__ = [
+	"CbrrrDecodeError",
 	"CID",
 	"DagCborTypes",
 	"decode_dag_cbor",
