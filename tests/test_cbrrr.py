@@ -94,13 +94,9 @@ class TestCbrrr(unittest.TestCase):
 		dup += cbor_head(MajorType.TEXT_STRING, 3) + b"abc"
 		dup += cbor_head(MajorType.UNSIGNED_INT, 2)
 
-		with self.assertRaises(ValueError) as cm:
+		# nb: my dupe detection logic is a consequence of my key order enforcement logic
+		with self.assertRaisesRegex(ValueError, "non-canonical"):
 			cbrrr.decode_dag_cbor(dup)
-	
-		self.assertEqual(
-			str(cm.exception),
-			"non-canonical map key ordering ('abc' <= 'abc')"
-		)
 	
 	def test_unsorted_map_keys(self):
 		# {"def": 1, "abc": 2}
@@ -110,13 +106,8 @@ class TestCbrrr(unittest.TestCase):
 		obj += cbor_head(MajorType.TEXT_STRING, 3) + b"abc"
 		obj += cbor_head(MajorType.UNSIGNED_INT, 2)
 
-		with self.assertRaises(ValueError) as cm:
+		with self.assertRaisesRegex(ValueError, "non-canonical"):
 			cbrrr.decode_dag_cbor(obj)
-	
-		self.assertEqual(
-			str(cm.exception),
-			"non-canonical map key ordering ('abc' <= 'def')"
-		)
 
 		# {"aaa": 1, "x": 2}  (shorter string should sort first)
 		obj = cbor_head(MajorType.MAP, 2)
@@ -125,13 +116,9 @@ class TestCbrrr(unittest.TestCase):
 		obj += cbor_head(MajorType.TEXT_STRING, 1) + b"x"
 		obj += cbor_head(MajorType.UNSIGNED_INT, 2)
 
-		with self.assertRaises(ValueError) as cm:
+		with self.assertRaisesRegex(ValueError, "non-canonical"):
 			cbrrr.decode_dag_cbor(obj)
-	
-		self.assertEqual(
-			str(cm.exception),
-			"non-canonical map key ordering (len('x') < len('aaa'))"
-		)
+
 
 if __name__ == '__main__':
 	unittest.main(module="tests.test_cbrrr")

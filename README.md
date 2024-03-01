@@ -1,7 +1,9 @@
 # dag-cbrrr
 Convert between DAG-CBOR and Python objects at hundreds of megabytes per second. Take a look at the [benchmarks](https://github.com/DavidBuchanan314/dag-cbor-benchmark)
 
-Other than speed, a distinguishing feature is that it operates *non-recursively*. This means you can decode or encode arbitrarily deeply nested objects without running out of call stack (although of course you might still run out of heap)
+Other than speed, a distinguishing feature is that it operates *non-recursively*. This means you can decode or encode arbitrarily deeply nested objects without running out of call stack (although of course you might still run out of heap).
+
+Finally, cbrrr aims to be maximally strict regarding DAG-CBOR canonicalization rules. See [below](#strictness) for further details.
 
 ## Installation
 
@@ -69,7 +71,22 @@ def encode_dag_cbor(
 
 "atjson_mode" refers to the representation used in atproto HTTP APIs, documented here [here](https://atproto.com/specs/data-model#json-representation). It is *not* a round-trip-safe representation.
 
-### Using `multiformats.CID`
+## Strictness
+
+cbrrr aims to conform to all the [strictness rules](https://ipld.io/specs/codecs/dag-cbor/spec/#strictness) set out in the DAG-CBOR specification.
+
+It decodes strictly, and there is no non-strict mode available. This means, among other things:
+
+- No duplicate map keys are allowed
+- No non-canonically sorted map keys are allowed
+- No non-string map keys are allowed
+- Only 64-bit floats are allowed
+- All integers/lengths must be minimally encoded
+- Only tag type 42 is allowed (NOTE: For now, CID values themselves are not validated)
+
+In its default configuration, valid DAG-CBOR should round-trip perfectly, i.e. `encode_dag_cbor(decode_dag_cbor(data)) == data`. (This is not necessarily true if you specify `atjson_mode=True`, or pass a custom CID type (see below) that misbehaves in some way).
+
+## Using `multiformats.CID`
 
 cbrrr brings its own performance-oriented CID class, but it's relatively bare-bones (supporting only base32, for now). If you want more features and broader compatibility, you can use the CID class from [hashberg-io/multiformats](https://github.com/hashberg-io/multiformats) like so:
 
