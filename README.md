@@ -77,9 +77,9 @@ cbrrr aims to conform to all the [strictness rules](https://ipld.io/specs/codecs
 
 It decodes strictly, and there is no non-strict mode available. This means, among other things:
 
-- No duplicate map keys are allowed
-- No non-canonically sorted map keys are allowed
-- No non-string map keys are allowed
+- Maps must not have duplicate keys
+- Map keys must be strings
+- Map keys must be canonically sorted
 - Only 64-bit floats are allowed
 - All integers/lengths must be minimally encoded
 - Only tag type 42 is allowed (NOTE: For now, CID values themselves are not validated)
