@@ -5,14 +5,17 @@ from . import _cbrrr  # type: ignore
 
 CbrrrDecodeError = _cbrrr.CbrrrDecodeError
 
+
 class CID:
 	"""
 	This class is very minimal, intended to support atproto use cases and not
 	much else.
 	"""
 
+	# fmt: off
 	CIDV1_DAG_CBOR_SHA256_32_PFX = b"\x01\x71\x12\x20"
 	CIDV1_RAW_SHA256_32_PFX      = b"\x01\x55\x12\x20"
+	# fmt: on
 
 	__slots__ = ("cid_bytes",)
 
@@ -27,35 +30,29 @@ class CID:
 		and is_cidv1_raw_sha256_32() methods may be useful for this.
 		"""
 		self.cid_bytes = cid_bytes
-	
+
 	@classmethod
 	def cidv1_dag_cbor_sha256_32_from(cls, data: bytes) -> "CID":
-		return cls(
-			cls.CIDV1_DAG_CBOR_SHA256_32_PFX
-			+ hashlib.sha256(data).digest()
-		)
+		return cls(cls.CIDV1_DAG_CBOR_SHA256_32_PFX + hashlib.sha256(data).digest())
 
 	@classmethod
 	def cidv1_raw_sha256_32_from(cls, data: bytes) -> "CID":
-		return cls(
-			cls.CIDV1_RAW_SHA256_32_PFX
-			+ hashlib.sha256(data).digest()
-		)
-	
+		return cls(cls.CIDV1_RAW_SHA256_32_PFX + hashlib.sha256(data).digest())
+
 	@classmethod
 	def decode(cls, data: Union[bytes, str]) -> "CID":
 		"""
 		Currently supported codecs: identity/raw, base32
 		"""
 
-		if type(data) is str:
+		if isinstance(data, str):
 			data = data.encode()
 
-		if data.startswith(b"\x00"): # identity multibase codec
+		if data.startswith(b"\x00"):  # identity multibase codec
 			return cls(data[1:])
 
-		if data.startswith(b"b"): # base32 multibase codec
-			data = data[1:] # strip prefix
+		if data.startswith(b"b"):  # base32 multibase codec
+			data = data[1:]  # strip prefix
 			if data.endswith(b"="):
 				raise ValueError("unexpected base32 padding")
 			# add back correct amount of padding (python is fussy)
@@ -67,8 +64,7 @@ class CID:
 
 	def encode(self, base="base32") -> str:
 		if base == "base32":
-			return "b" + base64.b32encode(self.cid_bytes) \
-				.decode().lower().rstrip("=")
+			return "b" + base64.b32encode(self.cid_bytes).decode().lower().rstrip("=")
 		# this function might support other encodings in the future
 		raise ValueError("unsupported base encoding")
 
@@ -89,22 +85,22 @@ class CID:
 
 	def __repr__(self):
 		return f"CID({self.encode()})"
-	
+
 	def __hash__(self) -> int:
 		return self.cid_bytes.__hash__()
-	
+
 	def __eq__(self, __value: object) -> bool:
 		if not isinstance(__value, CID):
 			return False
 		return self.cid_bytes == __value.cid_bytes
 
+
 # nb: | syntax not supported in <=py3.9
 DagCborTypes = Union[str, bytes, int, bool, float, CID, list, dict, None]
 
+
 def decode_dag_cbor(
-	data: bytes,
-	atjson_mode: bool=False,
-	cid_ctor: Callable[[bytes], Any]=CID
+	data: bytes, atjson_mode: bool = False, cid_ctor: Callable[[bytes], Any] = CID
 ) -> DagCborTypes:
 	"""
 	Decode DAG-CBOR bytes into python objects.
@@ -119,10 +115,9 @@ def decode_dag_cbor(
 		raise ValueError("did not parse to end of buffer")
 	return parsed
 
+
 def decode_multi_dag_cbor_in_violation_of_the_spec(
-	data: bytes,
-	atjson_mode: bool=False,
-	cid_ctor: Callable[[bytes], Any]=CID
+	data: bytes, atjson_mode: bool = False, cid_ctor: Callable[[bytes], Any] = CID
 ) -> Iterator[DagCborTypes]:
 	"""
 	https://ipld.io/specs/codecs/dag-cbor/spec/#strictness
@@ -137,12 +132,11 @@ def decode_multi_dag_cbor_in_violation_of_the_spec(
 		parsed, length = _cbrrr.decode_dag_cbor(view[offset:], cid_ctor, atjson_mode)
 		yield parsed
 		offset += length
-	assert(offset == len(data)) # should never fail!
+	assert offset == len(data)  # should never fail!
+
 
 def encode_dag_cbor(
-	obj: DagCborTypes,
-	atjson_mode: bool=False,
-	cid_type: Type=CID
+	obj: DagCborTypes, atjson_mode: bool = False, cid_type: Type = CID
 ) -> bytes:
 	"""
 	Encode python objects to DAG-CBOR bytes.
@@ -152,6 +146,7 @@ def encode_dag_cbor(
 	encoded as CIDs (CBOR tag value 42)
 	"""
 	return _cbrrr.encode_dag_cbor(obj, cid_type, atjson_mode)
+
 
 __all__ = [
 	"CbrrrDecodeError",

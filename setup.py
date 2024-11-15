@@ -11,7 +11,7 @@ setup(
 		Extension(
 			"cbrrr._cbrrr",
 			sources=["src/cbrrr/_cbrrr.c"],
-			extra_compile_args=["-O3", "-Wall", "-Wextra", "-Wpedantic", "-std=c99"]
+			extra_compile_args=["-O3", "-Wall", "-Wextra", "-Wpedantic", "-std=c99"],
 		),
-	]
+	],
 )

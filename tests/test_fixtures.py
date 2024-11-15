@@ -5,20 +5,22 @@ import base64
 import base58
 import unittest
 
+
 class CID:
 	def __init__(self, cid_bytes):
 		self.cid_bytes = cid_bytes
-	
+
 	def __repr__(self) -> str:
 		return f"CID({self.cid_bytes.hex()})"
 
 	def __str__(self) -> str:
-		#print(self.cid_bytes[:5])
+		# print(self.cid_bytes[:5])
 		# XXX: this is a hack! do proper multiformat logic
-		if self.cid_bytes.startswith(b'\x01'):
+		if self.cid_bytes.startswith(b"\x01"):
 			return "b" + base64.b32encode(self.cid_bytes).decode().lower().rstrip("=")
 		else:
 			return base58.b58encode(self.cid_bytes).decode()
+
 
 # XXX: this is not a good DAG-JSON encoder, it's just here because I need it
 # to verify the test results
@@ -42,11 +44,17 @@ class TestFixtures(unittest.TestCase):
 
 			dirpath = self.FIXTURE_PATH + subdir + "/"
 			paths = os.listdir(dirpath)
-			with open(next(dirpath + p for p in paths if p.endswith(".dag-cbor")), "rb") as infile:
+			with open(
+				next(dirpath + p for p in paths if p.endswith(".dag-cbor")), "rb"
+			) as infile:
 				dag_cbor = infile.read()
-			with open(next(dirpath + p for p in paths if p.endswith(".dag-json")), "rb") as outfile:
+			with open(
+				next(dirpath + p for p in paths if p.endswith(".dag-json")), "rb"
+			) as outfile:
 				dag_json = outfile.read()
-			py_normalised_json = json.dumps(json.loads(dag_json)) # roundtrip thru python, this makes sure floats etc are in python-flavoured encodings
+			py_normalised_json = json.dumps(
+				json.loads(dag_json)
+			)  # roundtrip thru python, this makes sure floats etc are in python-flavoured encodings
 			tests.append((subdir, dag_cbor, py_normalised_json))
 		self.tests = tests
 
@@ -58,5 +66,5 @@ class TestFixtures(unittest.TestCase):
 			self.assertEqual(reserialised, expected, name)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
 	unittest.main(module="tests.test_fixtures")

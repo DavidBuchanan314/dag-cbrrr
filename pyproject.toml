@@ -38,3 +38,7 @@ fuzz = [
 [project.urls]
 Homepage = "https://github.com/DavidBuchanan314/dag-cbrrr"
 Issues = "https://github.com/DavidBuchanan314/dag-cbrrr/issues"
+
+
+[tool.ruff.format]
+indent-style = "tab"

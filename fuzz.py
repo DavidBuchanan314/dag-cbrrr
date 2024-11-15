@@ -1,27 +1,27 @@
 import cbrrr
 import os
 import gc
-#import sys
+# import sys
 
-#gc.collect()
-#print(len(gc.get_objects()))
+# gc.collect()
+# print(len(gc.get_objects()))
 gc.collect()
 prev_heap = {}
 
 for i in range(9999999999):
 	try:
-		#print(sys.getrefcount(cbrrr.CID))
-		res = cbrrr.decode_dag_cbor(os.urandom(1024), atjson_mode=i&1)
-		#print(res)
-	except Exception as e:
-		#print(e)
+		# print(sys.getrefcount(cbrrr.CID))
+		res = cbrrr.decode_dag_cbor(os.urandom(1024), atjson_mode=i & 1)
+		# print(res)
+	except Exception:# as e:
+		# print(e)
 		pass
-	if i%100000 == 0:
+	if i % 100000 == 0:
 		gc.collect()
 		print(len(gc.get_objects()))
 		if 1:
-			print("="*128)
-			this_heap = {id(x):x for x in gc.get_objects()}
+			print("=" * 128)
+			this_heap = {id(x): x for x in gc.get_objects()}
 			if id(prev_heap) in this_heap:
 				del this_heap[id(prev_heap)]
 			if prev_heap:
@@ -30,4 +30,4 @@ for i in range(9999999999):
 						continue
 					print(this_heap[obj])
 			prev_heap = this_heap
-			print("="*128)
+			print("=" * 128)
