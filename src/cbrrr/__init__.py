@@ -1,4 +1,4 @@
-from typing import Type, Iterator, Union, Callable, Any
+from typing import Type, Iterator, Union, Callable, Any, List, Dict
 import base64
 import hashlib
 from . import _cbrrr  # type: ignore
@@ -96,7 +96,7 @@ class CID:
 
 
 # nb: | syntax not supported in <=py3.9
-DagCborTypes = Union[str, bytes, int, bool, float, CID, list, dict, None]
+DagCborTypes = Union[str, bytes, int, bool, float, CID, List["DagCborTypes"], Dict[str, "DagCborTypes"], None]
 
 
 def decode_dag_cbor(
