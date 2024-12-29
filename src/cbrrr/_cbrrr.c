@@ -5,6 +5,10 @@
 #include <stdint.h>
 #include <limits.h>
 
+#define STATIC_ASSERT(COND,MSG) typedef char static_assertion_##MSG[(COND)?1:-1]
+
+STATIC_ASSERT(sizeof(size_t) == 8, _64bit_platforms_only); // this'll hopefully be relaxed in the future
+
 // XXX: not sure having these as globals is the right thing to do?
 static PyObject *PY_ZERO;
 static PyObject *PY_UINT64_MAX;
