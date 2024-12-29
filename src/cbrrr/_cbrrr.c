@@ -3,10 +3,7 @@
 
 #include <string.h>
 #include <stdint.h>
-
-#define STATIC_ASSERT(COND,MSG) typedef char static_assertion_##MSG[(COND)?1:-1]
-
-//STATIC_ASSERT(sizeof(size_t) == 8, _64bit_platforms_only); // this'll hopefully be relaxed in the future
+#include <limits.h>
 
 // XXX: not sure having these as globals is the right thing to do?
 static PyObject *PY_ZERO;
@@ -184,6 +181,8 @@ cbrrr_bytes_to_b32_multibase(const uint8_t *data, size_t data_len)
 }
 
 
+// return value is length of input that was parsed, or -1 on error.
+// result is stored in `value`.
 static size_t
 cbrrr_parse_minimal_varint(const uint8_t *buf, size_t len, uint64_t *value)
 {
@@ -251,29 +250,31 @@ static size_t
 cbrrr_parse_raw_string(const uint8_t *buf, size_t len, DCMajorType type, const uint8_t **str, size_t *str_len)
 {
 	size_t idx = 0, res;
+	uint64_t actual_str_len;
 
 	if (len < idx + 1) {
 		PyErr_SetString(PY_CBRRR_DECODE_ERROR, "not enough bytes left in buffer");
 		return -1;
 	}
-	*str_len = buf[idx++];
-	if ((*str_len >> 5) != type) {
-		PyErr_Format(PY_CBRRR_DECODE_ERROR, "unexpected type (%lu), expected %lu", (*str_len >> 5), type);
+	actual_str_len = buf[idx++];
+	if ((actual_str_len >> 5) != type) {
+		PyErr_Format(PY_CBRRR_DECODE_ERROR, "unexpected type (%lu), expected %lu", (actual_str_len >> 5), type);
 		return -1;
 	}
-	*str_len &= 0x1f;
-	res = cbrrr_parse_minimal_varint(&buf[idx], len-idx, (uint64_t*)str_len);
+	actual_str_len &= 0x1f;
+	res = cbrrr_parse_minimal_varint(&buf[idx], len-idx, &actual_str_len);
 	if (res == (size_t)-1) {
 		// python error has been set by cbrrr_parse_minimal_varint
 		return -1;
 	}
 	idx += res;
-	if (*str_len > len - idx) {
+	if (actual_str_len > (uint64_t)len - idx) { // should also handle cases where actual_str_len is > SIZE_MAX
 		PyErr_SetString(PY_CBRRR_DECODE_ERROR, "not enough bytes left in buffer");
 		return -1;
 	}
 	*str = &buf[idx];
-	return idx + *str_len;
+	*str_len = actual_str_len;
+	return idx + actual_str_len;
 }
 
 // returns number of bytes parsed, -1 on failure
