@@ -25,9 +25,10 @@ jobs:
           packages: python3 py3-pip
       - name: Install cbrrr python module
         run: |
-          python3 -m pip install -v .[fixtures]
+          python3 -m venv .venv
+          .venv/bin/python3 -m pip install -v .[fixtures]
         shell: alpine.sh {0}
       - name: Run the tests
         run: |
-          python3 -m unittest -v
+          .venv/bin/python3 -m unittest -v
         shell: alpine.sh {0}
