@@ -23,7 +23,7 @@ jobs:
         with:
           arch: ${{ matrix.alpine-arch }}
           version: latest-stable
-          packages: python3 py3-pip
+          packages: build-base python3 py3-pip python3-dev
       - name: Install cbrrr python module
         run: |
           python3 -m venv .venv
