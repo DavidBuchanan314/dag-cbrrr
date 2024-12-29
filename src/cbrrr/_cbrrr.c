@@ -7,6 +7,15 @@
 
 #define STATIC_ASSERT(COND,MSG) typedef char static_assertion_##MSG[(COND)?1:-1]
 
+/* If you're compiling on a 32-bit platform, commenting this out should "work",
+   but I make no guarantees about the safety of the resulting code. I think
+   there are some lurking integer-overflow-adjacent bugs that could be
+   triggered by malicious inputs. (frankly, the same caveat applies to 64-bit
+   too, but I've at least fuzz-tested it a bit)
+
+   It should be safe enough if you're self-hosting a PDS, but think twice about
+   e.g. parsing the atproto firehose.
+*/
 STATIC_ASSERT(sizeof(size_t) == 8, _64bit_platforms_only); // this'll hopefully be relaxed in the future
 
 // XXX: not sure having these as globals is the right thing to do?
