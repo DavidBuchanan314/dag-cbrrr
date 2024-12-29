@@ -527,7 +527,7 @@ cbrrr_parse_object(const uint8_t *buf, size_t len, PyObject **value, PyObject *c
 			);
 			parse_stack[sp].count -= 1;
 		} else { /* if we're currently parsing a map */
-			const u_int8_t *str;
+			const uint8_t *str;
 			size_t str_len;
 			size_t res = cbrrr_parse_raw_string(&buf[idx], len-idx, DCMT_TEXT_STRING, &str, &str_len);
 			if (res == (size_t)-1) {
