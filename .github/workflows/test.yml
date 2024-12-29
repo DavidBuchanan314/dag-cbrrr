@@ -1,4 +1,4 @@
-name: Run multi-python-version tests on native arch
+name: Test multi-python-version
 run-name: ${{ github.actor }} is running tests
 on:
   push:
@@ -11,6 +11,7 @@ jobs:
   Tests:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version: [ '3.7', '3.8', '3.9', '3.10', '3.11', '3.12', '3.13' ]
     name: ubuntu-latest Python ${{ matrix.python-version }}
