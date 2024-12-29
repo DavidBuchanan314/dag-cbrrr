@@ -9,7 +9,7 @@ on:
       - main
 jobs:
   Tests:
-    runs-on: ubuntu-latest
+    runs-on: alpine-latest
     strategy:
       matrix:
         python-version: [ '3.7', '3.10', '3.11', '3.12', '3.13' ]
