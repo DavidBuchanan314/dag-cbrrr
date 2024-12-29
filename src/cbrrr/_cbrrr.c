@@ -267,7 +267,14 @@ cbrrr_parse_raw_string(const uint8_t *buf, size_t len, DCMajorType type, const u
 		// python error has been set by cbrrr_parse_minimal_varint
 		return -1;
 	}
+
+	// should only be plausible on 32-bit platforms
+	if (idx > SIZE_MAX - res) {
+		PyErr_SetString(PY_CBRRR_DECODE_ERROR, "index overflow");
+		return -1;
+	}
 	idx += res;
+
 	if (actual_str_len > (uint64_t)len - idx) { // should also handle cases where actual_str_len is > SIZE_MAX
 		PyErr_SetString(PY_CBRRR_DECODE_ERROR, "not enough bytes left in buffer");
 		return -1;
@@ -341,6 +348,12 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 		// python error set by cbrrr_parse_minimal_varint
 		return -1;
 	}
+
+	// should only be plausible on 32-bit platforms
+	if (idx > SIZE_MAX - res) {
+		PyErr_SetString(PY_CBRRR_DECODE_ERROR, "index overflow");
+		return -1;
+	}
 	idx += res;
 
 	// at this point, `info` represents its actual value, with meaning depending on the major type
@@ -392,7 +405,7 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 		}
 		return idx + info;
 	case DCMT_TEXT_STRING:
-		if (info > len - idx) {
+		if (info > (uint64_t)len - idx) {
 			PyErr_SetString(PY_CBRRR_DECODE_ERROR, "not enough bytes left in buffer");
 			return -1;
 		}
@@ -402,7 +415,7 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 		}
 		return idx + info;
 	case DCMT_ARRAY:
-		if (info > len - idx) {
+		if (info > (uint64_t)len - idx) {
 			PyErr_SetString(PY_CBRRR_DECODE_ERROR, "not enough bytes left in buffer for an array that long");
 			return -1;
 		}
@@ -413,7 +426,7 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 		token->count = info;
 		return idx;
 	case DCMT_MAP:
-		if (info > len - idx) {
+		if (info > (uint64_t)len - idx) {
 			PyErr_SetString(PY_CBRRR_DECODE_ERROR, "not enough bytes left in buffer for a map that long");
 			return -1;
 		}
