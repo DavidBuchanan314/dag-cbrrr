@@ -1,5 +1,5 @@
 name: Test multi-arch
-run-name: ${{ github.actor }} is running tests
+run-name: ${{ github.actor }} is running multi-arch tests
 on:
   push:
     branches:

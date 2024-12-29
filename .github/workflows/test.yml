@@ -1,5 +1,5 @@
 name: Test multi-python-version
-run-name: ${{ github.actor }} is running tests
+run-name: ${{ github.actor }} is running multi-python-version tests
 on:
   push:
     branches:
