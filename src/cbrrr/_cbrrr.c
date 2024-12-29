@@ -1314,13 +1314,19 @@ cbrrr_encode_object(CbrrrBuf *buf, PyObject *obj_in, PyObject* cid_type, int atj
 				break;
 			}
 			uint64_t dub_int = ((union {uint64_t num; double dub;}){.dub=doubleval}).num;
+			uint8_t dub_be[8];
 
-			/* hacky in-place endian-swap, the compiler should know what to do */
-			dub_int = ((dub_int <<  8) & 0xFF00FF00FF00FF00ULL ) | ((dub_int >>  8) & 0x00FF00FF00FF00FFULL );
-			dub_int = ((dub_int << 16) & 0xFFFF0000FFFF0000ULL ) | ((dub_int >> 16) & 0x0000FFFF0000FFFFULL );
-			dub_int = (dub_int << 32) | ((dub_int >> 32) & 0xFFFFFFFFULL);
+			/* the compiler should be smart about emitting an endian swap if necessary */
+			dub_be[0] = (dub_int >> 56) & 0xff;
+			dub_be[1] = (dub_int >> 48) & 0xff;
+			dub_be[2] = (dub_int >> 40) & 0xff;
+			dub_be[3] = (dub_int >> 32) & 0xff;
+			dub_be[4] = (dub_int >> 24) & 0xff;
+			dub_be[5] = (dub_int >> 16) & 0xff;
+			dub_be[6] = (dub_int >>  8) & 0xff;
+			dub_be[7] = (dub_int >>  0) & 0xff;
 
-			if (cbrrr_buf_write(buf, (uint8_t*)&dub_int, sizeof(dub_int)) < 0) {
+			if (cbrrr_buf_write(buf, dub_be, sizeof(dub_be)) < 0) {
 				break;
 			}
 			continue;
