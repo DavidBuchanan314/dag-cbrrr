@@ -102,3 +102,11 @@ encoded = cbrrr.encode_dag_cbor(
 decoded = cbrrr.decode_dag_cbor(encoded, cid_ctor=multiformats.CID.decode)
 print(decoded)  # zb2rhZfjRh2FHHB2RkHVEvL2vJnCTcu7kwRqgVsf9gpkLgteo
 ```
+
+## Running Tests
+
+```sh
+# clone the repo
+python3 -m pip install -ve .
+python3 -m unittest -v
+```

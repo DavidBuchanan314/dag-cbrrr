@@ -3,9 +3,19 @@
 
 #include <string.h>
 #include <stdint.h>
+#include <limits.h>
 
 #define STATIC_ASSERT(COND,MSG) typedef char static_assertion_##MSG[(COND)?1:-1]
 
+/* If you're compiling on a 32-bit platform, commenting this out should "work",
+   but I make no guarantees about the safety of the resulting code. I think
+   there are some lurking integer-overflow-adjacent bugs that could be
+   triggered by malicious inputs. (frankly, the same caveat applies to 64-bit
+   too, but I've at least fuzz-tested it a bit)
+
+   It should be safe enough if you're self-hosting a PDS, but think twice about
+   e.g. parsing the atproto firehose.
+*/
 STATIC_ASSERT(sizeof(size_t) == 8, _64bit_platforms_only); // this'll hopefully be relaxed in the future
 
 // XXX: not sure having these as globals is the right thing to do?
@@ -184,6 +194,8 @@ cbrrr_bytes_to_b32_multibase(const uint8_t *data, size_t data_len)
 }
 
 
+// return value is length of input that was parsed, or -1 on error.
+// result is stored in `value`.
 static size_t
 cbrrr_parse_minimal_varint(const uint8_t *buf, size_t len, uint64_t *value)
 {
@@ -251,29 +263,38 @@ static size_t
 cbrrr_parse_raw_string(const uint8_t *buf, size_t len, DCMajorType type, const uint8_t **str, size_t *str_len)
 {
 	size_t idx = 0, res;
+	uint64_t actual_str_len;
 
 	if (len < idx + 1) {
 		PyErr_SetString(PY_CBRRR_DECODE_ERROR, "not enough bytes left in buffer");
 		return -1;
 	}
-	*str_len = buf[idx++];
-	if ((*str_len >> 5) != type) {
-		PyErr_Format(PY_CBRRR_DECODE_ERROR, "unexpected type (%lu), expected %lu", (*str_len >> 5), type);
+	actual_str_len = buf[idx++];
+	if ((actual_str_len >> 5) != type) {
+		PyErr_Format(PY_CBRRR_DECODE_ERROR, "unexpected type (%lu), expected %lu", (actual_str_len >> 5), type);
 		return -1;
 	}
-	*str_len &= 0x1f;
-	res = cbrrr_parse_minimal_varint(&buf[idx], len-idx, (uint64_t*)str_len);
+	actual_str_len &= 0x1f;
+	res = cbrrr_parse_minimal_varint(&buf[idx], len-idx, &actual_str_len);
 	if (res == (size_t)-1) {
 		// python error has been set by cbrrr_parse_minimal_varint
 		return -1;
 	}
+
+	// should only be plausible on 32-bit platforms
+	if (idx > SIZE_MAX - res) {
+		PyErr_SetString(PY_CBRRR_DECODE_ERROR, "index overflow");
+		return -1;
+	}
 	idx += res;
-	if (*str_len > len - idx) {
+
+	if (actual_str_len > (uint64_t)len - idx) { // should also handle cases where actual_str_len is > SIZE_MAX
 		PyErr_SetString(PY_CBRRR_DECODE_ERROR, "not enough bytes left in buffer");
 		return -1;
 	}
 	*str = &buf[idx];
-	return idx + *str_len;
+	*str_len = actual_str_len;
+	return idx + actual_str_len;
 }
 
 // returns number of bytes parsed, -1 on failure
@@ -340,6 +361,12 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 		// python error set by cbrrr_parse_minimal_varint
 		return -1;
 	}
+
+	// should only be plausible on 32-bit platforms
+	if (idx > SIZE_MAX - res) {
+		PyErr_SetString(PY_CBRRR_DECODE_ERROR, "index overflow");
+		return -1;
+	}
 	idx += res;
 
 	// at this point, `info` represents its actual value, with meaning depending on the major type
@@ -391,7 +418,7 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 		}
 		return idx + info;
 	case DCMT_TEXT_STRING:
-		if (info > len - idx) {
+		if (info > (uint64_t)len - idx) {
 			PyErr_SetString(PY_CBRRR_DECODE_ERROR, "not enough bytes left in buffer");
 			return -1;
 		}
@@ -401,7 +428,7 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 		}
 		return idx + info;
 	case DCMT_ARRAY:
-		if (info > len - idx) {
+		if (info > (uint64_t)len - idx) {
 			PyErr_SetString(PY_CBRRR_DECODE_ERROR, "not enough bytes left in buffer for an array that long");
 			return -1;
 		}
@@ -412,7 +439,7 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 		token->count = info;
 		return idx;
 	case DCMT_MAP:
-		if (info > len - idx) {
+		if (info > (uint64_t)len - idx) {
 			PyErr_SetString(PY_CBRRR_DECODE_ERROR, "not enough bytes left in buffer for a map that long");
 			return -1;
 		}
@@ -527,7 +554,7 @@ cbrrr_parse_object(const uint8_t *buf, size_t len, PyObject **value, PyObject *c
 			);
 			parse_stack[sp].count -= 1;
 		} else { /* if we're currently parsing a map */
-			const u_int8_t *str;
+			const uint8_t *str;
 			size_t str_len;
 			size_t res = cbrrr_parse_raw_string(&buf[idx], len-idx, DCMT_TEXT_STRING, &str, &str_len);
 			if (res == (size_t)-1) {
@@ -1314,13 +1341,19 @@ cbrrr_encode_object(CbrrrBuf *buf, PyObject *obj_in, PyObject* cid_type, int atj
 				break;
 			}
 			uint64_t dub_int = ((union {uint64_t num; double dub;}){.dub=doubleval}).num;
+			uint8_t dub_be[8];
 
-			/* hacky in-place endian-swap, the compiler should know what to do */
-			dub_int = ((dub_int <<  8) & 0xFF00FF00FF00FF00ULL ) | ((dub_int >>  8) & 0x00FF00FF00FF00FFULL );
-			dub_int = ((dub_int << 16) & 0xFFFF0000FFFF0000ULL ) | ((dub_int >> 16) & 0x0000FFFF0000FFFFULL );
-			dub_int = (dub_int << 32) | ((dub_int >> 32) & 0xFFFFFFFFULL);
+			/* the compiler should be smart about emitting an endian swap if necessary */
+			dub_be[0] = (dub_int >> 56) & 0xff;
+			dub_be[1] = (dub_int >> 48) & 0xff;
+			dub_be[2] = (dub_int >> 40) & 0xff;
+			dub_be[3] = (dub_int >> 32) & 0xff;
+			dub_be[4] = (dub_int >> 24) & 0xff;
+			dub_be[5] = (dub_int >> 16) & 0xff;
+			dub_be[6] = (dub_int >>  8) & 0xff;
+			dub_be[7] = (dub_int >>  0) & 0xff;
 
-			if (cbrrr_buf_write(buf, (uint8_t*)&dub_int, sizeof(dub_int)) < 0) {
+			if (cbrrr_buf_write(buf, dub_be, sizeof(dub_be)) < 0) {
 				break;
 			}
 			continue;
