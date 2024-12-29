@@ -1,4 +1,4 @@
-name: Run tests
+name: Run multi-python-version tests on native arch
 run-name: ${{ github.actor }} is running tests
 on:
   push:
@@ -12,25 +12,18 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        alpine-arch: [ 'x86_64', 'x86', 'aarch64' ]
-        python-version: [ '3.7', '3.10', '3.11', '3.12', '3.13' ]
-    name: ${{ matrix.alpine-arch }} / Python ${{ matrix.python-version }}
+        python-version: [ '3.7', '3.8', '3.9', '3.10', '3.11', '3.12', '3.13' ]
+    name: ubuntu-latest Python ${{ matrix.python-version }}
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - uses: jirutka/setup-alpine@v1
-        with:
-          arch: ${{ matrix.alpine-arch }}
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-        shell: alpine.sh {0}
       - name: Install cbrrr python module
         run: |
           python3 -m pip install -v .[fixtures]
-        shell: alpine.sh {0}
       - name: Run the tests
         run: |
           python3 -m unittest -v
-        shell: alpine.sh {0}
