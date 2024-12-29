@@ -9,23 +9,27 @@ on:
       - main
 jobs:
   Tests:
-    runs-on: alpine-latest
+    runs-on: ubuntu-latest
     strategy:
       matrix:
+        alpine-arch: [ 'x86_64', 'x86', 'aarch64' ]
         python-version: [ '3.7', '3.10', '3.11', '3.12', '3.13' ]
-        python-arch: [ 'x86', 'x64', 'arm64' ]
-    name: Python ${{ matrix.python-version }} tests
+    name: ${{ matrix.alpine-arch }} / Python ${{ matrix.python-version }}
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+      - uses: jirutka/setup-alpine@v1
+        with:
+          arch: ${{ matrix.alpine-arch }}
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          architecture: ${{ matrix.python-arch }}
       - name: Install cbrrr python module
         run: |
           python3 -m pip install -v .[fixtures]
+        shell: alpine.sh {0}
       - name: Run the tests
         run: |
           python3 -m unittest -v
+        shell: alpine.sh {0}
