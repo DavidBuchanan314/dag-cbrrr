@@ -615,12 +615,13 @@ cbrrr_parse_object(const uint8_t *buf, size_t len, PyObject **value, PyObject *c
 			sp += 1;
 			if ((sp + 1) >= stack_len) {
 				stack_len *= 2; // TODO:PERF: smaller increments?
-				parse_stack = realloc(parse_stack, stack_len * sizeof(*parse_stack));
-				if (parse_stack == NULL) {
+				DCToken* new_stack = realloc(parse_stack, stack_len * sizeof(*parse_stack));
+				if (new_stack == NULL) {
 					PyErr_SetString(PyExc_MemoryError, "realloc failed");
 					idx = -1;
 					break;
 				}
+				parse_stack = new_stack;
 			}
 		}
 	}
@@ -1086,11 +1087,12 @@ cbrrr_encode_object(CbrrrBuf *buf, PyObject *obj_in, PyObject* cid_type, int atj
 		// make sure there's always at least 1 free slot at the top of the stack
 		if ((sp + 1) >= stack_len) {
 			stack_len *= 2; // TODO:PERF: smaller increments?
-			encoder_stack = realloc(encoder_stack, stack_len * sizeof(*encoder_stack));
-			if (encoder_stack == NULL) {
+			EncoderStackFrame *new_stack = realloc(encoder_stack, stack_len * sizeof(*encoder_stack));
+			if (new_stack == NULL) {
 				PyErr_SetString(PyExc_MemoryError, "realloc failed");
 				break;
 			}
+			encoder_stack = new_stack;
 		}
 
 		PyObject *obj;
