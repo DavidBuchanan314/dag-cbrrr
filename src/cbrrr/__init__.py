@@ -128,6 +128,7 @@ class StrictCID(CID):
 		if cid_version != 1:
 			raise ValueError("Unsupported CID version")
 
+		decode_varint(stream) # multicodec content type, ignored
 		decode_varint(stream) # hash type, value ignored
 
 		hash_length = decode_varint(stream)
