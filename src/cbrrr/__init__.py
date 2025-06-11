@@ -1,6 +1,7 @@
-from typing import Type, Iterator, Union, Callable, Any, List, Dict
+from typing import Type, Iterator, Union, Callable, Any, List, Dict, BinaryIO
 import base64
 import hashlib
+import io
 from . import _cbrrr  # type: ignore
 
 CbrrrDecodeError = _cbrrr.CbrrrDecodeError
@@ -93,6 +94,48 @@ class CID:
 		if not isinstance(__value, CID):
 			return False
 		return self.cid_bytes == __value.cid_bytes
+
+
+def decode_varint(stream: BinaryIO):
+	n = 0
+	for shift in range(0, 63, 7):
+		val = stream.read(1)
+		if not val:
+			raise ValueError("unexpected end of varint input")
+		val = val[0]
+		n |= (val & 0x7f) << shift
+		if not val & 0x80:
+			if shift and not val:
+				raise ValueError("varint not minimally encoded")
+			return n
+		shift += 7
+	raise ValueError("varint too long")
+
+
+# I'm adding this so I can pass more CID tests at https://hyphacoop.github.io/dasl-testing/
+# I may later decide to perform some or all of the checks inside the C code, for better perf,
+# while also making it the default behaviour.
+class StrictCID(CID):
+	def __init__(self, cid_bytes: bytes) -> None:
+		self.cid_bytes = cid_bytes
+
+		if len(cid_bytes) == 34 and cid_bytes.startswith(b"\x12\x20"):
+			return # valid CIDv0
+
+		stream = io.BytesIO(cid_bytes)
+		cid_version = decode_varint(stream)
+
+		if cid_version != 1:
+			raise ValueError("Unsupported CID version")
+
+		decode_varint(stream) # hash type, value ignored
+
+		hash_length = decode_varint(stream)
+		hash_value = stream.read()
+
+		if len(hash_value) != hash_length:
+			raise ValueError("Invalid CID hash length")
+
 
 
 # nb: | syntax not supported in <=py3.9
