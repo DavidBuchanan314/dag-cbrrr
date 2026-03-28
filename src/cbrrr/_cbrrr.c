@@ -575,14 +575,14 @@ cbrrr_parse_object(const uint8_t *buf, size_t len, PyObject **value, PyObject *c
 					// panik
 					PyObject *tmp = PyUnicode_FromStringAndSize((const char*)parse_stack[sp].prev_key, parse_stack[sp].prev_key_len);
 					PyErr_Format(PY_CBRRR_DECODE_ERROR, "non-canonical map key ordering (len(%R) < len(%R))", key, tmp);
-					Py_DECREF(tmp);
+					Py_XDECREF(tmp);
 					idx = -1;
 					break;
 				} else if (str_len == parse_stack[sp].prev_key_len) { // ditto
 					if (memcmp(str, parse_stack[sp].prev_key, str_len) <= 0) {
 						PyObject *tmp = PyUnicode_FromStringAndSize((const char*)parse_stack[sp].prev_key, parse_stack[sp].prev_key_len);
 						PyErr_Format(PY_CBRRR_DECODE_ERROR, "non-canonical map key ordering (%R <= %R)", key, tmp);
-						Py_DECREF(tmp);
+						Py_XDECREF(tmp);
 						idx = -1;
 						break;
 					}
@@ -1285,6 +1285,7 @@ cbrrr_encode_object(CbrrrBuf *buf, PyObject *obj_in, PyObject* cid_type, int atj
 		if (obj_type ==  &PyLong_Type) { // int
 			// we can't really do the range checks on the C side because the
 			// overflow would happen before we can detect it.
+			// nb: RichCompareBool can't fail here (long-to-long compare never errors)
 			if (PyObject_RichCompareBool(obj, PY_ZERO, Py_GE)) {
 				if (PyObject_RichCompareBool(obj, PY_UINT64_MAX, Py_GT)) {
 					PyErr_SetString(PyExc_ValueError, "integer out of range");
