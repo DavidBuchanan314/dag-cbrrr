@@ -57,6 +57,7 @@ typedef struct {
 	uint8_t *buf;
 	size_t length;
 	size_t capacity;
+	int on_heap;
 } CbrrrBuf;
 
 typedef struct {
@@ -504,15 +505,11 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 static size_t
 cbrrr_parse_object(const uint8_t *buf, size_t len, PyObject **value, PyObject *cid_ctor, int atjson_mode)
 {
-	/* The stack will get realloc'd whenever we run out (and freed on return) */
 	/* stack[sp+1] is used like a local variable to hold all parsed tokens */
-	size_t stack_len = 16;
-	DCToken *parse_stack = malloc(stack_len * sizeof(*parse_stack));
-
-	if (parse_stack == NULL) {
-		PyErr_SetString(PyExc_MemoryError, "malloc failed");
-		return -1;
-	}
+	DCToken _stack_buf[16];
+	DCToken *parse_stack = _stack_buf;
+	size_t stack_len = sizeof(_stack_buf) / sizeof(*_stack_buf);
+	int stack_on_heap = 0;
 
 	/* pretend that we're parsing an array of length 1
 	   (avoids needing to special-case root-level parsing) */
@@ -619,9 +616,18 @@ cbrrr_parse_object(const uint8_t *buf, size_t len, PyObject **value, PyObject *c
 					break;
 				}
 				stack_len *= 2;
-				DCToken* new_stack = realloc(parse_stack, stack_len * sizeof(*parse_stack));
+				DCToken *new_stack;
+				if (stack_on_heap) {
+					new_stack = realloc(parse_stack, stack_len * sizeof(*parse_stack));
+				} else {
+					new_stack = malloc(stack_len * sizeof(*parse_stack));
+					if (new_stack != NULL) {
+						memcpy(new_stack, parse_stack, sizeof(_stack_buf));
+					}
+					stack_on_heap = 1;
+				}
 				if (new_stack == NULL) {
-					PyErr_SetString(PyExc_MemoryError, "realloc failed");
+					PyErr_SetString(PyExc_MemoryError, "alloc failed");
 					idx = -1;
 					break;
 				}
@@ -636,7 +642,9 @@ cbrrr_parse_object(const uint8_t *buf, size_t len, PyObject **value, PyObject *c
 	// under error conditions, this *also* acheives the desired effect
 	Py_DecRef(parse_stack[0].value);
 
-	free(parse_stack);
+	if (stack_on_heap) {
+		free(parse_stack);
+	}
 	return idx;
 }
 
@@ -695,9 +703,18 @@ cbrrr_buf_make_room(CbrrrBuf *buf, size_t len) // sets python exception on fail
 			return -1;
 		}
 		buf->capacity = buf->capacity * 2;
-		uint8_t *new_buf = realloc(buf->buf, buf->capacity);
+		uint8_t *new_buf;
+		if (buf->on_heap) {
+			new_buf = realloc(buf->buf, buf->capacity);
+		} else {
+			new_buf = malloc(buf->capacity);
+			if (new_buf != NULL) {
+				memcpy(new_buf, buf->buf, buf->length);
+			}
+			buf->on_heap = 1;
+		}
 		if (new_buf == NULL) {
-			PyErr_SetString(PyExc_MemoryError, "realloc failed");
+			PyErr_SetString(PyExc_MemoryError, "alloc failed");
 			return -1;
 		}
 		buf->buf = new_buf;
@@ -1076,13 +1093,10 @@ cbrrr_encode_object(CbrrrBuf *buf, PyObject *obj_in, PyObject* cid_type, int atj
 	0 float
 	*/
 
-	size_t stack_len = 16;
-	EncoderStackFrame *encoder_stack = malloc(stack_len * sizeof(*encoder_stack));
-
-	if (encoder_stack == NULL) {
-		PyErr_SetString(PyExc_MemoryError, "malloc failed");
-		return -1;
-	}
+	EncoderStackFrame _stack_buf[16];
+	EncoderStackFrame *encoder_stack = _stack_buf;
+	size_t stack_len = sizeof(_stack_buf) / sizeof(*_stack_buf);
+	int stack_on_heap = 0;
 
 	encoder_stack[0].dict = NULL;
 	encoder_stack[0].list = NULL;
@@ -1100,9 +1114,18 @@ cbrrr_encode_object(CbrrrBuf *buf, PyObject *obj_in, PyObject* cid_type, int atj
 				break;
 			}
 			stack_len *= 2;
-			EncoderStackFrame *new_stack = realloc(encoder_stack, stack_len * sizeof(*encoder_stack));
+			EncoderStackFrame *new_stack;
+			if (stack_on_heap) {
+				new_stack = realloc(encoder_stack, stack_len * sizeof(*encoder_stack));
+			} else {
+				new_stack = malloc(stack_len * sizeof(*encoder_stack));
+				if (new_stack != NULL) {
+					memcpy(new_stack, encoder_stack, sizeof(_stack_buf));
+				}
+				stack_on_heap = 1;
+			}
 			if (new_stack == NULL) {
-				PyErr_SetString(PyExc_MemoryError, "realloc failed");
+				PyErr_SetString(PyExc_MemoryError, "alloc failed");
 				break;
 			}
 			encoder_stack = new_stack;
@@ -1386,7 +1409,9 @@ cbrrr_encode_object(CbrrrBuf *buf, PyObject *obj_in, PyObject* cid_type, int atj
 		}
 	}
 
-	free(encoder_stack);
+	if (stack_on_heap) {
+		free(encoder_stack);
+	}
 	return res;
 }
 
@@ -1408,13 +1433,11 @@ cbrrr_encode_dag_cbor(PyObject *self, PyObject *args)
 		return NULL;
 	}
 
+	uint8_t initial_buf[0x400];
+	buf.buf = initial_buf;
 	buf.length = 0;
-	buf.capacity = 0x400; // TODO:PERF: tune this?
-	buf.buf = malloc(buf.capacity);
-	if (buf.buf == NULL) {
-		PyErr_SetString(PyExc_MemoryError, "malloc failed");
-		return NULL;
-	}
+	buf.capacity = sizeof(initial_buf);
+	buf.on_heap = 0;
 
 	if (cbrrr_encode_object(&buf, obj, cid_type, atjson_mode) < 0) {
 		res = NULL;
@@ -1422,7 +1445,9 @@ cbrrr_encode_dag_cbor(PyObject *self, PyObject *args)
 		res = PyBytes_FromStringAndSize((const char*)buf.buf, buf.length); // nb: this incurs a copy
 	}
 
-	free(buf.buf);
+	if (buf.on_heap) {
+		free(buf.buf);
+	}
 	return res;
 }
 
