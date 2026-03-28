@@ -9,6 +9,7 @@
 #define SIZE_MUL_OVERFLOW(a, b) ((b) != 0 && (a) > SIZE_MAX / (b))
 
 // XXX: not sure having these as globals is the right thing to do?
+// (works fine for now but breaks subinterpreter isolation)
 static PyObject *PY_ZERO;
 static PyObject *PY_UINT64_MAX;
 static PyObject *PY_UINT64_MAX_INVERTED;
