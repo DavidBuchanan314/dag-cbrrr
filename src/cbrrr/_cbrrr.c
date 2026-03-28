@@ -45,7 +45,6 @@ typedef struct {
 	uint8_t *buf;
 	size_t length;
 	size_t capacity;
-	int on_heap;
 } CbrrrBuf;
 
 typedef struct {
@@ -721,18 +720,9 @@ cbrrr_buf_make_room(CbrrrBuf *buf, size_t len) // sets python exception on fail
 			return -1;
 		}
 		buf->capacity = buf->capacity * 2;
-		uint8_t *new_buf;
-		if (buf->on_heap) {
-			new_buf = realloc(buf->buf, buf->capacity);
-		} else {
-			new_buf = malloc(buf->capacity);
-			if (new_buf != NULL) {
-				memcpy(new_buf, buf->buf, buf->length);
-			}
-			buf->on_heap = 1;
-		}
+		uint8_t *new_buf = realloc(buf->buf, buf->capacity);
 		if (new_buf == NULL) {
-			PyErr_SetString(PyExc_MemoryError, "alloc failed");
+			PyErr_SetString(PyExc_MemoryError, "realloc failed");
 			return -1;
 		}
 		buf->buf = new_buf;
@@ -1463,11 +1453,13 @@ cbrrr_encode_dag_cbor(PyObject *self, PyObject *args)
 		return NULL;
 	}
 
-	uint8_t initial_buf[0x400];
-	buf.buf = initial_buf;
 	buf.length = 0;
-	buf.capacity = sizeof(initial_buf);
-	buf.on_heap = 0;
+	buf.capacity = 0x400;
+	buf.buf = malloc(buf.capacity);
+	if (buf.buf == NULL) {
+		PyErr_SetString(PyExc_MemoryError, "malloc failed");
+		return NULL;
+	}
 
 	if (cbrrr_encode_object(&buf, obj, cid_type, atjson_mode) < 0) {
 		res = NULL;
@@ -1475,9 +1467,7 @@ cbrrr_encode_dag_cbor(PyObject *self, PyObject *args)
 		res = PyBytes_FromStringAndSize((const char*)buf.buf, buf.length); // nb: this incurs a copy
 	}
 
-	if (buf.on_heap) {
-		free(buf.buf);
-	}
+	free(buf.buf);
 	return res;
 }
 
