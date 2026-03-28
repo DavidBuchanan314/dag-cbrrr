@@ -512,9 +512,15 @@ cbrrr_parse_object(const uint8_t *buf, size_t len, PyObject **value, PyObject *c
 	int stack_on_heap = 0;
 
 	/* pretend that we're parsing an array of length 1
-	   (avoids needing to special-case root-level parsing) */
+	   (avoids needing to special-case root-level parsing)
+
+	   TODO: don't do this, improve perf by avoiding the unnecessary alloc
+	*/
 	parse_stack[0].type = DCMT_ARRAY;
 	parse_stack[0].value = PyList_New(1);
+	if (parse_stack[0].value == NULL) {
+		return -1;
+	}
 	parse_stack[0].count = 1;
 
 	size_t sp = 0;
