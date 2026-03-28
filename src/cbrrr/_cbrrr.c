@@ -453,7 +453,7 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 		return idx;
 	case DCMT_TAG:
 		if (info != 42) { // only tag type 42=CID is supported
-			PyErr_Format(PY_CBRRR_DECODE_ERROR, "invalid tag value (%lu)", info);
+			PyErr_Format(PY_CBRRR_DECODE_ERROR, "invalid tag value (%llu)", (unsigned long long)info);
 			return -1;
 		}
 		// parse a byte string
