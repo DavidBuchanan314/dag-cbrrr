@@ -318,6 +318,10 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 			Py_INCREF(token->value);
 			return idx;
 		case 27:
+			if (atjson_mode) {
+				PyErr_SetString(PY_CBRRR_DECODE_ERROR, "floats are not supported in atjson mode");
+				return -1;
+			}
 			if (len < idx + sizeof(double)) {
 				PyErr_SetString(PY_CBRRR_DECODE_ERROR, "not enough bytes left in buffer");
 				return -1;
@@ -556,6 +560,14 @@ cbrrr_parse_object(const uint8_t *buf, size_t len, PyObject **value, PyObject *c
 				break;
 			}
 			idx += res;
+			if (atjson_mode) {
+				if ((str_len == 5 && memcmp(str, "$link", 5) == 0) ||
+				    (str_len == 6 && memcmp(str, "$bytes", 6) == 0)) {
+					PyErr_SetString(PY_CBRRR_DECODE_ERROR, "reserved key in dag-cbor map");
+					idx = -1;
+					break;
+				}
+			}
 			// check unicode validity before parsing next token to avoid leaking a reference when we bail out
 			// TODO:PERF: fast-path(s) for common/short keys, via interning?
 			PyObject *key = PyUnicode_FromStringAndSize((const char*)str, str_len);
@@ -1306,6 +1318,14 @@ cbrrr_encode_object(CbrrrBuf *buf, PyObject *obj_in, PyObject* cid_type, int atj
 				}
 				// fallthru
 			}
+			if (atjson_mode && PySequence_Fast_GET_SIZE(keys) > 1) {
+				if (PyDict_Contains(obj, PY_STRING_LINK) == 1 ||
+				    PyDict_Contains(obj, PY_STRING_BYTES) == 1) {
+					PyErr_SetString(PyExc_ValueError, "$link/$bytes must be the only key in the object");
+					Py_DECREF(keys);
+					break;
+				}
+			}
 			if (PySequence_Fast_GET_SIZE(keys) > 1) { /* don't try to sort empty or 1-length lists! */
 				qsort( // it's a bit janky but we can sort the key list in-place, I think?
 					PySequence_Fast_ITEMS(keys),
@@ -1370,6 +1390,10 @@ cbrrr_encode_object(CbrrrBuf *buf, PyObject *obj_in, PyObject* cid_type, int atj
 			continue;
 		}
 		if (obj_type == &PyFloat_Type) {
+			if (atjson_mode) {
+				PyErr_SetString(PyExc_TypeError, "floats are not supported in atjson mode");
+				break;
+			}
 			double doubleval = PyFloat_AS_DOUBLE(obj);
 			if (isnan(doubleval)) {
 				PyErr_SetString(PyExc_ValueError, "NaNs are not allowed");

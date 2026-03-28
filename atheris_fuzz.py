@@ -16,8 +16,7 @@ def TestOneInput(data):
 		)
 	except:
 		return
-	if not ATJSON_MODE:  # atjson does not roundtrip consistently!!!
-		assert roundtrip == data
+	assert roundtrip == data
 
 
 atheris.Setup(sys.argv, TestOneInput)
