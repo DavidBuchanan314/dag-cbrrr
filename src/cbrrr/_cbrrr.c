@@ -67,10 +67,7 @@ static const uint8_t B64_CHARSET[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnop
 static PyObject*
 cbrrr_bytes_to_b64_string_nopad(const uint8_t *data, size_t data_len)
 {
-	/* XXX: data_len*4 could integer overflow. Unless you have 2^63 bytes of RAM,
-	   it should be impossible to reach that condition. To make this safe on 32-bit
-	   platforms we'll need to enforce a length limit */
-	PyObject *res = PyUnicode_New((data_len*4+2)/3, 127); /* ASCII-only (b64 charset) */
+	PyObject *res = PyUnicode_New(((uint64_t)data_len*4+2)/3, 127); /* ASCII-only (b64 charset) */
 	if (res == NULL) {
 		return NULL;
 	}
@@ -117,8 +114,7 @@ static const uint8_t B32_CHARSET[] = "abcdefghijklmnopqrstuvwxyz234567";
 static PyObject*
 cbrrr_bytes_to_b32_multibase(const uint8_t *data, size_t data_len)
 {
-	/* XXX: see comment in b64 fn above, re integer overflow */
-	PyObject *res = PyUnicode_New(1 + (data_len*8+4)/5, 127); /* ASCII-only (b32 charset) */
+	PyObject *res = PyUnicode_New(1 + ((uint64_t)data_len*8+4)/5, 127); /* ASCII-only (b32 charset) */
 	if (res == NULL) {
 		return NULL;
 	}
