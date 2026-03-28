@@ -349,6 +349,9 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 				return -1;
 			}
 			token->value = PyFloat_FromDouble(doubleval);
+			if (token->value == NULL) {
+				return -1;
+			}
 			return idx + sizeof(double);
 		default:
 			PyErr_Format(PY_CBRRR_DECODE_ERROR, "invalid extra info for float mtype (%lu)", info);
@@ -407,6 +410,7 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 			}
 			if (PyDict_SetItem(token->value, PY_STRING_BYTES, tmp) != 0) {
 				Py_DECREF(tmp);
+				Py_DECREF(token->value);
 				return -1;
 			}
 			Py_DECREF(tmp);
@@ -480,6 +484,7 @@ cbrrr_parse_token(const uint8_t *buf, size_t len, DCToken *token, PyObject *cid_
 			}
 			if (PyDict_SetItem(token->value, PY_STRING_LINK, tmp) != 0) {
 				Py_DECREF(tmp);
+				Py_DECREF(token->value);
 				return -1;
 			}
 			Py_DECREF(tmp);
@@ -683,6 +688,10 @@ cbrrr_decode_dag_cbor(PyObject *self, PyObject *args)
 	}
 
 	PyObject *lenvar = PyLong_FromUnsignedLongLong(res);
+	if (lenvar == NULL) {
+		Py_DECREF(value);
+		return NULL;
+	}
 
 	PyObject *restuple = PyTuple_Pack(2, value, lenvar);
 	Py_DECREF(value);
