@@ -7,6 +7,9 @@
 
 #define STATIC_ASSERT(COND,MSG) typedef char static_assertion_##MSG[(COND)?1:-1]
 
+// returns true if a * b would overflow size_t
+#define SIZE_MUL_OVERFLOW(a, b) ((b) != 0 && (a) > SIZE_MAX / (b))
+
 /* If you're compiling on a 32-bit platform, commenting this out should "work",
    but I make no guarantees about the safety of the resulting code. I think
    there are some lurking integer-overflow-adjacent bugs that could be
@@ -610,7 +613,12 @@ cbrrr_parse_object(const uint8_t *buf, size_t len, PyObject **value, PyObject *c
 		if ((parse_stack[sp+1].type == DCMT_ARRAY) || (parse_stack[sp+1].type == DCMT_MAP)) {
 			sp += 1;
 			if ((sp + 1) >= stack_len) {
-				stack_len *= 2; // TODO:PERF: smaller increments?
+				if (SIZE_MUL_OVERFLOW(stack_len, 2) || SIZE_MUL_OVERFLOW(stack_len * 2, sizeof(*parse_stack))) {
+					PyErr_SetString(PyExc_MemoryError, "parse stack too large");
+					idx = -1;
+					break;
+				}
+				stack_len *= 2;
 				DCToken* new_stack = realloc(parse_stack, stack_len * sizeof(*parse_stack));
 				if (new_stack == NULL) {
 					PyErr_SetString(PyExc_MemoryError, "realloc failed");
@@ -682,7 +690,7 @@ static int
 cbrrr_buf_make_room(CbrrrBuf *buf, size_t len) // sets python exception on fail
 {
 	while (buf->capacity - buf->length < len){
-		if (buf->capacity > SIZE_MAX / 2) {
+		if (SIZE_MUL_OVERFLOW(buf->capacity, 2)) {
 			PyErr_SetString(PyExc_MemoryError, "buffer too large");
 			return -1;
 		}
@@ -1087,7 +1095,11 @@ cbrrr_encode_object(CbrrrBuf *buf, PyObject *obj_in, PyObject* cid_type, int atj
 	for (;;) {
 		// make sure there's always at least 1 free slot at the top of the stack
 		if ((sp + 1) >= stack_len) {
-			stack_len *= 2; // TODO:PERF: smaller increments?
+			if (SIZE_MUL_OVERFLOW(stack_len, 2) || SIZE_MUL_OVERFLOW(stack_len * 2, sizeof(*encoder_stack))) {
+				PyErr_SetString(PyExc_MemoryError, "encoder stack too large");
+				break;
+			}
+			stack_len *= 2;
 			EncoderStackFrame *new_stack = realloc(encoder_stack, stack_len * sizeof(*encoder_stack));
 			if (new_stack == NULL) {
 				PyErr_SetString(PyExc_MemoryError, "realloc failed");
