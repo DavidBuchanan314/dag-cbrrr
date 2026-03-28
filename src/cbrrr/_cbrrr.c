@@ -1195,7 +1195,7 @@ cbrrr_encode_object(CbrrrBuf *buf, PyObject *obj_in, PyObject* cid_type, int atj
 				Py_DECREF(cidbytes_obj);
 				break;
 			}
-			if (cbrrr_write_cbor_varint(buf, DCMT_BYTE_STRING, bytes_len + 1) < 0) {
+			if (cbrrr_write_cbor_varint(buf, DCMT_BYTE_STRING, (uint64_t)bytes_len + 1) < 0) {
 				Py_DECREF(cidbytes_obj);
 				break;
 			}
