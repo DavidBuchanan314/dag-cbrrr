@@ -687,11 +687,12 @@ cbrrr_buf_make_room(CbrrrBuf *buf, size_t len) // sets python exception on fail
 {
 	while (buf->capacity - buf->length < len){
 		buf->capacity = buf->capacity * 2;
-		buf->buf = realloc(buf->buf, buf->capacity);
-		if (buf->buf == NULL) {
+		uint8_t *new_buf = realloc(buf->buf, buf->capacity);
+		if (new_buf == NULL) {
 			PyErr_SetString(PyExc_MemoryError, "realloc failed");
 			return -1;
 		}
+		buf->buf = new_buf;
 	}
 	return 0;
 }
