@@ -578,6 +578,7 @@ cbrrr_parse_object(const uint8_t *buf, size_t len, PyObject **value, PyObject *c
 					PyObject *tmp = PyUnicode_FromStringAndSize((const char*)parse_stack[sp].prev_key, parse_stack[sp].prev_key_len);
 					PyErr_Format(PY_CBRRR_DECODE_ERROR, "non-canonical map key ordering (len(%R) < len(%R))", key, tmp);
 					Py_XDECREF(tmp);
+					Py_DECREF(key);
 					idx = -1;
 					break;
 				} else if (str_len == parse_stack[sp].prev_key_len) { // ditto
@@ -585,6 +586,7 @@ cbrrr_parse_object(const uint8_t *buf, size_t len, PyObject **value, PyObject *c
 						PyObject *tmp = PyUnicode_FromStringAndSize((const char*)parse_stack[sp].prev_key, parse_stack[sp].prev_key_len);
 						PyErr_Format(PY_CBRRR_DECODE_ERROR, "non-canonical map key ordering (%R <= %R)", key, tmp);
 						Py_XDECREF(tmp);
+						Py_DECREF(key);
 						idx = -1;
 						break;
 					}
@@ -595,6 +597,7 @@ cbrrr_parse_object(const uint8_t *buf, size_t len, PyObject **value, PyObject *c
 
 			res = cbrrr_parse_token(&buf[idx], len-idx, &parse_stack[sp+1], cid_ctor, atjson_mode);
 			if (res == (size_t)-1) {
+				Py_DECREF(key);
 				idx = -1;
 				break;
 			}
@@ -603,6 +606,8 @@ cbrrr_parse_object(const uint8_t *buf, size_t len, PyObject **value, PyObject *c
 
 			// move ownership of sp+1 into sp
 			if(PyDict_SetItem(parse_stack[sp].value, key, parse_stack[sp+1].value) < 0) {
+				Py_DECREF(key);
+				Py_DECREF(parse_stack[sp+1].value);
 				idx = -1;
 				break;
 			}
