@@ -682,6 +682,10 @@ static int
 cbrrr_buf_make_room(CbrrrBuf *buf, size_t len) // sets python exception on fail
 {
 	while (buf->capacity - buf->length < len){
+		if (buf->capacity > SIZE_MAX / 2) {
+			PyErr_SetString(PyExc_MemoryError, "buffer too large");
+			return -1;
+		}
 		buf->capacity = buf->capacity * 2;
 		uint8_t *new_buf = realloc(buf->buf, buf->capacity);
 		if (new_buf == NULL) {
