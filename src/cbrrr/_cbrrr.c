@@ -504,29 +504,27 @@ cbrrr_parse_object(const uint8_t *buf, size_t len, PyObject **value, PyObject *c
 	size_t stack_len = sizeof(_stack_buf) / sizeof(*_stack_buf);
 	int stack_on_heap = 0;
 
-	/* pretend that we're parsing an array of length 1
-	   (avoids needing to special-case root-level parsing)
-
-	   TODO: don't do this, improve perf by avoiding the unnecessary alloc
-	*/
-	parse_stack[0].type = DCMT_ARRAY;
-	parse_stack[0].value = PyList_New(1);
-	if (parse_stack[0].value == NULL) {
-		return -1;
-	}
-	parse_stack[0].count = 1;
-
-	size_t sp = 0;
 	size_t idx = 0;
 
-	/* parser stack machine thing... if it looks confusing it's because it is */
+	/* parse the root token directly into parse_stack[0] */
+	size_t res = cbrrr_parse_token(buf, len, &parse_stack[0], cid_ctor, atjson_mode);
+	if (res == (size_t)-1) {
+		return -1;
+	}
+	idx = res;
+
+	/* if the root is a scalar, we're done */
+	if (parse_stack[0].type != DCMT_ARRAY && parse_stack[0].type != DCMT_MAP) {
+		*value = parse_stack[0].value;
+		return idx;
+	}
+
+	size_t sp = 0;
 
 	for (;;) {
 		if (parse_stack[sp].count == 0) { /* If we're done on this level of the stack */
 			if (sp == 0) { /* no more stack left, parsing is complete! */
-				/* pull the parsed result out of the dummy list of length 1 we created at the start */
-				*value = PyList_GET_ITEM(parse_stack[0].value, 0);
-				Py_XINCREF(*value); // nb: this would be cleaner with Py_XNewRef, available in py3.10+. You could probably drop the X too, I can't think why PyList_GET_ITEM would fail.
+				*value = parse_stack[0].value; /* steal the reference */
 				break;
 			}
 			sp -= 1; /* "return" to the previous stack frame */
@@ -534,7 +532,7 @@ cbrrr_parse_object(const uint8_t *buf, size_t len, PyObject **value, PyObject *c
 		}
 
 		if (parse_stack[sp].type == DCMT_ARRAY) { /* if we're currently parsing an array */
-			size_t res = cbrrr_parse_token(&buf[idx], len-idx, &parse_stack[sp+1], cid_ctor, atjson_mode);
+			res = cbrrr_parse_token(&buf[idx], len-idx, &parse_stack[sp+1], cid_ctor, atjson_mode);
 			if (res == (size_t)-1) {
 				idx = -1;
 				break;
@@ -551,7 +549,7 @@ cbrrr_parse_object(const uint8_t *buf, size_t len, PyObject **value, PyObject *c
 		} else { /* if we're currently parsing a map */
 			const uint8_t *str;
 			size_t str_len;
-			size_t res = cbrrr_parse_raw_string(&buf[idx], len-idx, DCMT_TEXT_STRING, &str, &str_len);
+			res = cbrrr_parse_raw_string(&buf[idx], len-idx, DCMT_TEXT_STRING, &str, &str_len);
 			if (res == (size_t)-1) {
 				// panik
 				idx = -1;
@@ -640,11 +638,11 @@ cbrrr_parse_object(const uint8_t *buf, size_t len, PyObject **value, PyObject *c
 		}
 	}
 
-	// under non-error conditions, the final GetItem preserves the refcount of the actual result,
-	// but we still want to free the dummy array of length 1 we initially created
-
-	// under error conditions, this *also* acheives the desired effect
-	Py_DecRef(parse_stack[0].value);
+	// on success, parse_stack[0].value was stolen into *value above
+	// on error, we need to free it (which recursively frees all children)
+	if (idx == (size_t)-1) {
+		Py_DecRef(parse_stack[0].value);
+	}
 
 	if (stack_on_heap) {
 		free(parse_stack);
